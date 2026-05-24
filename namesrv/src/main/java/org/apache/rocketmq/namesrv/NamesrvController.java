@@ -91,20 +91,33 @@ public class NamesrvController {
         this.namesrvConfig = namesrvConfig;
         this.nettyServerConfig = nettyServerConfig;
         this.nettyClientConfig = nettyClientConfig;
+        // 管理运行时动态 KV 配置，支持持久化到 kvConfig.json
         this.kvConfigManager = new KVConfigManager(this);
+        // 监听 Netty Channel 事件（断连/空闲/异常），触发路由清理
         this.brokerHousekeepingService = new BrokerHousekeepingService(this);
+        // 管理六大路由表
         this.routeInfoManager = new RouteInfoManager(namesrvConfig, this);
+        // 统一配置管理，用于运行时动态更新配置
         this.configuration = new Configuration(LOGGER, this.namesrvConfig, this.nettyServerConfig);
         this.configuration.setStorePathFromConfig(this.namesrvConfig, "configStorePath");
     }
 
     public boolean initialize() {
+        // 加载 KV 配置,从 ~/.namesrv/kvConfig.json 加载之前持久化的 KV 配置。这些是通过管理命令动态写入的配置项，重启后需要恢复。
         loadConfig();
+        // 创建 Netty Server/Client,创建 Netty Server 和 Client，还没有 bind 端口。
+        // 注意 brokerHousekeepingService 作为 ChannelEventListener 传给了 Server，
+        // 这样当 Broker 的连接断开时，Server 会回调它。
         initiateNetworkComponents();
+        // 初始化线程池
         initiateThreadExecutors();
+        // 注册请求处理器
         registerProcessor();
+        // 启动定时任务
         startScheduleService();
+        // SSL 支持
         initiateSslContext();
+        // 注册 RPC Hook
         initiateRpcHooks();
         return true;
     }
@@ -114,12 +127,13 @@ public class NamesrvController {
     }
 
     private void startScheduleService() {
+        // 每 5 秒扫描不活跃 Broker
         this.scanExecutorService.scheduleAtFixedRate(NamesrvController.this.routeInfoManager::scanNotActiveBroker,
             5000, this.namesrvConfig.getScanNotActiveBrokerInterval(), TimeUnit.MILLISECONDS);
-
+        // 每 10 分钟打印 KV 配置
         this.scheduledExecutorService.scheduleAtFixedRate(NamesrvController.this.kvConfigManager::printAllPeriodically,
             1, 10, TimeUnit.MINUTES);
-
+        // 每 1 秒打印线程池队列水位
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
             try {
                 NamesrvController.this.printWaterMark();
@@ -135,9 +149,10 @@ public class NamesrvController {
     }
 
     private void initiateThreadExecutors() {
+        // 默认线程池：处理 Broker 注册/心跳等,队列默认大小10000,16个线程
         this.defaultThreadPoolQueue = new LinkedBlockingQueue<>(this.namesrvConfig.getDefaultThreadPoolQueueCapacity());
         this.defaultExecutor = ThreadUtils.newThreadPoolExecutor(this.namesrvConfig.getDefaultThreadPoolNums(), this.namesrvConfig.getDefaultThreadPoolNums(), 1000 * 60, TimeUnit.MILLISECONDS, this.defaultThreadPoolQueue, new ThreadFactoryImpl("RemotingExecutorThread_"));
-
+        // 客户端请求线程池：处理路由查询,队列默认大小50000,8个线程
         this.clientRequestThreadPoolQueue = new LinkedBlockingQueue<>(this.namesrvConfig.getClientRequestThreadPoolQueueCapacity());
         this.clientRequestExecutor = ThreadUtils.newThreadPoolExecutor(this.namesrvConfig.getClientRequestThreadPoolNums(), this.namesrvConfig.getClientRequestThreadPoolNums(), 1000 * 60, TimeUnit.MILLISECONDS, this.clientRequestThreadPoolQueue, new ThreadFactoryImpl("ClientRequestExecutorThread_"));
     }
@@ -207,9 +222,10 @@ public class NamesrvController {
             this.remotingServer.registerDefaultProcessor(new ClusterTestRequestProcessor(this, namesrvConfig.getProductEnvName()), this.defaultExecutor);
         } else {
             // Support get route info only temporarily
+            // 路由查询 → 专用线程池
             ClientRequestProcessor clientRequestProcessor = new ClientRequestProcessor(this);
             this.remotingServer.registerProcessor(RequestCode.GET_ROUTEINFO_BY_TOPIC, clientRequestProcessor, this.clientRequestExecutor);
-
+            // 其他所有请求 → 默认线程池
             this.remotingServer.registerDefaultProcessor(new DefaultRequestProcessor(this), this.defaultExecutor);
         }
     }
@@ -219,6 +235,32 @@ public class NamesrvController {
     }
 
     public void start() throws Exception {
+        // 网卡数据到达
+        //  ↓
+        //Boss EventLoop (accept 连接)
+        //  ↓
+        //Worker EventLoop (读数据)
+        //  ↓
+        //HandshakeHandler (HAProxy 检测 + TLS 握手，一次性移除)
+        //  ↓
+        //NettyDecoder (LengthFieldBasedFrameDecoder 拆包 + RemotingCommand.decode 反序列化)
+        //  ↓
+        //RemotingCodeDistributionHandler (统计流量)
+        //  ↓
+        //IdleStateHandler (空闲检测)
+        //  ↓
+        //NettyConnectManageHandler (连接事件 → 事件队列 → BrokerHousekeepingService)
+        //  ↓
+        //NettyServerHandler.channelRead0()
+        //  ↓
+        //NettyRemotingAbstract.processMessageReceived()
+        //  ├─ REQUEST_COMMAND → processRequestCommand()
+        //  │     ├─ 从 processorTable 找到匹配的 Processor
+        //  │     ├─ 检查 rejectRequest()（流控）
+        //  │     ├─ 包装成 RequestTask
+        //  │     └─ submit 到对应的线程池（defaultExecutor / clientRequestExecutor）
+        //  └─ RESPONSE_COMMAND → processResponseCommand()
+        //        └─ 从 responseTable 找到对应的 CompletableFuture，complete 它
         this.remotingServer.start();
 
         // In test scenarios where it is up to OS to pick up an available port, set the listening port back to config

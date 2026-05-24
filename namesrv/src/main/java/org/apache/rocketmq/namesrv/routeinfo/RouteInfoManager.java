@@ -69,13 +69,51 @@ public class RouteInfoManager {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private static final long DEFAULT_BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    // topic路由
+    //    topicQueueTable = {
+    //    "TopicA" → {
+    //        "broker-a" → QueueData{brokerName="broker-a", readQueueNums=4, writeQueueNums=4, perm=6}
+    //        "broker-b" → QueueData{brokerName="broker-b", readQueueNums=4, writeQueueNums=4, perm=6}
+    //    },
+    //    "TopicB" → {
+    //        "broker-a" → QueueData{brokerName="broker-a", readQueueNums=8, writeQueueNums=8, perm=6}
+    //    }
+    //}
     private final Map<String/* topic */, Map<String, QueueData>> topicQueueTable;
+    // broker地址
+    //    brokerAddrTable = {
+    //    "broker-a" → BrokerData{
+    //        cluster = "DefaultCluster",
+    //        brokerName = "broker-a",
+    //        brokerAddrs = {
+    //            0L → "10.0.0.1:10911",   // Master
+    //            1L → "10.0.0.2:10911",   // Slave 1
+    //            2L → "10.0.0.3:10911"    // Slave 2
+    //        }
+    //    },
+    //    "broker-b" → BrokerData{
+    //        cluster = "DefaultCluster",
+    //        brokerName = "broker-b",
+    //        brokerAddrs = {
+    //            0L → "10.0.0.4:10911",
+    //            1L → "10.0.0.5:10911"
+    //        }
+    //    }
+    //}
     private final Map<String/* brokerName */, BrokerData> brokerAddrTable;
+    // 集群拓扑
+    // clusterAddrTable = {
+    //    "DefaultCluster" → {"broker-a", "broker-b", "broker-c"},
+    //    "ClusterB" → {"broker-d"}
+    //}
     private final Map<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
+    // 心跳存活
     private final Map<BrokerAddrInfo/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
+    // FilterServer
     private final Map<BrokerAddrInfo/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
+    // 静态Topic映射
     private final Map<String/* topic */, Map<String/*brokerName*/, TopicQueueMappingInfo>> topicQueueMappingInfoTable;
-
+    // 异步注销服务
     private final BatchUnregistrationService unRegisterService;
 
     private final NamesrvController namesrvController;
@@ -237,9 +275,11 @@ public class RouteInfoManager {
         final Channel channel) {
         RegisterBrokerResult result = new RegisterBrokerResult();
         try {
+            // 进入写锁，保证多张路由表的更新有一致的临界区
             this.lock.writeLock().lockInterruptibly();
 
             //init or update the cluster info
+            // 1. clusterAddrTable: clusterName -> brokerName 集合
             Set<String> brokerNames = ConcurrentHashMapUtils.computeIfAbsent((ConcurrentHashMap<String, Set<String>>) this.clusterAddrTable, clusterName, k -> new HashSet<>());
             brokerNames.add(brokerName);
 

@@ -52,13 +52,17 @@ public class NamesrvStartup {
     private static ControllerConfig controllerConfig = null;
 
     public static void main(String[] args) {
+        // 启动 NameServer 本体
         main0(args);
+        // 可选：启动 Controller（Raft 选主）
         controllerManagerMain();
     }
 
     public static NamesrvController main0(String[] args) {
         try {
+            // 解析命令行配置
             parseCommandlineAndConfigFile(args);
+            // 创建并启动NamesrvController
             NamesrvController controller = createAndStartNamesrvController();
             return controller;
         } catch (Throwable e) {
@@ -82,18 +86,22 @@ public class NamesrvStartup {
     }
 
     public static void parseCommandlineAndConfigFile(String[] args) throws Exception {
+        // 设置 Remoting 版本号
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
-
+        // 解析命令行 解析失败直接退出
         Options options = ServerUtil.buildCommandlineOptions(new Options());
         CommandLine commandLine = ServerUtil.parseCmdLine("mqnamesrv", args, buildCommandlineOptions(options), new DefaultParser());
         if (null == commandLine) {
             System.exit(-1);
             return;
         }
-
+        // NameServer 自身配置（线程池大小、扫描间隔、KV 路径等）
         namesrvConfig = new NamesrvConfig();
+        // Nety 服务端配置（端口、SSL 等）
         nettyServerConfig = new NettyServerConfig();
+        // Netty 客户端配置（用于主动连 Broker）
         nettyClientConfig = new NettyClientConfig();
+        // 默认端口9876
         nettyServerConfig.setListenPort(9876);
         if (commandLine.hasOption('c')) {
             String file = commandLine.getOptionValue('c');
@@ -101,9 +109,11 @@ public class NamesrvStartup {
                 InputStream in = new BufferedInputStream(Files.newInputStream(Paths.get(file)));
                 properties = new Properties();
                 properties.load(in);
+                // 把配置映射到三个 Config 对象
                 MixAll.properties2Object(properties, namesrvConfig);
                 MixAll.properties2Object(properties, nettyServerConfig);
                 MixAll.properties2Object(properties, nettyClientConfig);
+                // 如果开启了 Controller 模式，还要加载 Controller 和 Jraft 配置
                 if (namesrvConfig.isEnableControllerInNamesrv()) {
                     controllerConfig = new ControllerConfig();
                     JraftConfig jraftConfig = new JraftConfig();
@@ -128,7 +138,7 @@ public class NamesrvStartup {
             }
             System.exit(0);
         }
-
+        // 检查 ROCKETMQ_HOME是否存在
         if (null == namesrvConfig.getRocketmqHome()) {
             System.out.printf("Please set the %s variable in your environment to match the location of the RocketMQ installation%n", MixAll.ROCKETMQ_HOME_ENV);
             System.exit(-2);
@@ -139,8 +149,9 @@ public class NamesrvStartup {
     }
 
     public static NamesrvController createAndStartNamesrvController() throws Exception {
-
+        // 创建
         NamesrvController controller = createNamesrvController();
+        // 初始化 + 启动
         start(controller);
         NettyServerConfig serverConfig = controller.getNettyServerConfig();
         String tip = String.format("The Name Server boot success. serializeType=%s, address %s:%d", RemotingCommand.getSerializeTypeConfigInThisServer(), serverConfig.getBindAddress(), serverConfig.getListenPort());
@@ -168,7 +179,7 @@ public class NamesrvStartup {
             controller.shutdown();
             System.exit(-3);
         }
-
+        // 注册 JVM 关闭钩子
         Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, (Callable<Void>) () -> {
             controller.shutdown();
             return null;

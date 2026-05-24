@@ -132,15 +132,19 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
     public NettyRemotingServer(final NettyServerConfig nettyServerConfig,
                                final ChannelEventListener channelEventListener) {
+        // 异步信号量
         super(nettyServerConfig.getServerOnewaySemaphoreValue(), nettyServerConfig.getServerAsyncSemaphoreValue());
         this.serverBootstrap = new ServerBootstrap();
         this.nettyServerConfig = nettyServerConfig;
+        // BrokerHousekeepingService
         this.channelEventListener = channelEventListener;
-
+        // 回调线程池
         this.publicExecutor = buildPublicExecutor(nettyServerConfig);
+        // 调度线程池
         this.scheduledExecutorService = buildScheduleExecutor();
-
+        // Boss 线程组
         this.eventLoopGroupBoss = buildEventLoopGroupBoss();
+        // Worker 线程组
         this.eventLoopGroupSelector = buildEventLoopGroupSelector();
 
         loadSslContext();
@@ -198,32 +202,37 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
     }
 
     protected void initServerBootstrap(ServerBootstrap serverBootstrap) {
+        // Boss + Worker
         serverBootstrap.group(this.eventLoopGroupBoss, this.eventLoopGroupSelector)
             .channel(useEpoll() ? EpollServerSocketChannel.class : NioServerSocketChannel.class)
-            .option(ChannelOption.SO_BACKLOG, 1024)
-            .option(ChannelOption.SO_REUSEADDR, true)
-            .childOption(ChannelOption.SO_KEEPALIVE, false)
-            .childOption(ChannelOption.TCP_NODELAY, true)
+            .option(ChannelOption.SO_BACKLOG, 1024)  // TCP 连接队列大小
+            .option(ChannelOption.SO_REUSEADDR, true) // 端口复用
+            .childOption(ChannelOption.SO_KEEPALIVE, false) // 不启用 TCP keepalive
+            .childOption(ChannelOption.TCP_NODELAY, true) // 禁用 Nagle 算法
             .localAddress(new InetSocketAddress(this.nettyServerConfig.getBindAddress(),
-                this.nettyServerConfig.getListenPort()))
+                this.nettyServerConfig.getListenPort())) // 0.0.0.0:9876
             .childHandler(new ChannelInitializer<SocketChannel>() {
                 @Override
                 public void initChannel(SocketChannel ch) {
+                    // 配置 Pipeline
                     configChannel(ch);
                 }
             });
-
+        // // 可选的 SO_SNDBUF/SO_RCVBUF/水位线配置
         addCustomConfig(serverBootstrap);
     }
 
     @Override
     public void start() {
+        // 创建 Handler 线程池
+        // 这个线程池用于执行 Pipeline 中耗时的 Handler（编解码、业务处理）。和 Boss/Worker 的 EventLoop 线程分开，避免阻塞 I/O
         this.defaultEventExecutorGroup = new DefaultEventExecutorGroup(nettyServerConfig.getServerWorkerThreads(),
             new ThreadFactoryImpl("NettyServerCodecThread_"));
-
+        // 配置 ServerBootstrap
         initServerBootstrap(serverBootstrap);
 
         try {
+            // bind 端口
             ChannelFuture sync = serverBootstrap.bind().sync();
             InetSocketAddress addr = (InetSocketAddress) sync.channel().localAddress();
             if (0 == nettyServerConfig.getListenPort()) {
@@ -236,7 +245,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
             throw new IllegalStateException(String.format("Failed to bind to %s:%d", nettyServerConfig.getBindAddress(),
                 nettyServerConfig.getListenPort()), e);
         }
-
+        // 启动 Channel 事件监听
         if (this.channelEventListener != null) {
             this.nettyEventExecutor.start();
         }
@@ -253,8 +262,9 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                 }
             }
         };
+        // 启动超时响应扫描
         this.timer.newTimeout(timerScanResponseTable, 1000 * 3, TimeUnit.MILLISECONDS);
-
+        // 启动流量统计
         scheduledExecutorService.scheduleWithFixedDelay(() -> {
             try {
                 NettyRemotingServer.this.printRemotingCodeDistribution();
@@ -271,17 +281,20 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
      * @return the initialized ChannelPipeline, sub class can use it to extent in the future
      */
     protected ChannelPipeline configChannel(SocketChannel ch) {
+        // 入站 → HandshakeHandler → NettyDecoder → distributionHandler → IdleStateHandler → connectionManageHandler → serverHandler
+        // 出站 ← NettyEncoder ←
         return ch.pipeline()
+            // 握手
             .addLast(getDefaultEventExecutorGroup(),
                 HANDSHAKE_HANDLER_NAME, new HandshakeHandler())
             .addLast(getDefaultEventExecutorGroup(),
-                encoder,
-                new NettyDecoder(),
-                distributionHandler,
+                encoder, // 编码器
+                new NettyDecoder(), // 解码器
+                distributionHandler, // 流量统计
                 new IdleStateHandler(0, 0,
-                    nettyServerConfig.getServerChannelMaxIdleTimeSeconds()),
-                connectionManageHandler,
-                serverHandler
+                    nettyServerConfig.getServerChannelMaxIdleTimeSeconds()), // 空闲检测
+                connectionManageHandler, // 连接管理
+                serverHandler // 业务处理
             );
     }
 
@@ -457,20 +470,24 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
         @Override
         protected void decode(ChannelHandlerContext ctx, ByteBuf byteBuf, List<Object> out) throws Exception {
             try {
+                // 检测是否是 HAProxy 协议
                 ProtocolDetectionResult<HAProxyProtocolVersion> detectionResult = HAProxyMessageDecoder.detectProtocol(byteBuf);
                 if (detectionResult.state() == ProtocolDetectionState.NEEDS_MORE_DATA) {
                     return;
                 }
                 if (detectionResult.state() == ProtocolDetectionState.DETECTED) {
+                    // HAProxy 协议 → 先解码 HAProxy，再 TLS
                     ctx.pipeline().addAfter(getDefaultEventExecutorGroup(), ctx.name(), HA_PROXY_DECODER, new HAProxyMessageDecoder())
                         .addAfter(getDefaultEventExecutorGroup(), HA_PROXY_DECODER, HA_PROXY_HANDLER, new HAProxyMessageHandler())
                         .addAfter(getDefaultEventExecutorGroup(), HA_PROXY_HANDLER, TLS_MODE_HANDLER, tlsModeHandler);
                 } else {
+                    // 普通连接 → 直接 TLS
                     ctx.pipeline().addAfter(getDefaultEventExecutorGroup(), ctx.name(), TLS_MODE_HANDLER, tlsModeHandler);
                 }
 
                 try {
                     // Remove this handler
+                    // 处理完移除自己（一次性）
                     ctx.pipeline().remove(this);
                 } catch (NoSuchElementException e) {
                     log.error("Error while removing HandshakeHandler", e);

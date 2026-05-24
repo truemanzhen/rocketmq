@@ -225,7 +225,7 @@ public class PopMessageProcessor implements NettyRequestProcessor {
     @Override
     public RemotingCommand processRequest(final ChannelHandlerContext ctx, RemotingCommand request)
         throws RemotingCommandException {
-
+        // 系统当前时间
         final long beginTimeMills = this.brokerController.getMessageStore().now();
 
         Channel channel = ctx.channel();
