@@ -29,36 +29,44 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class AdaptiveBackOffSpinLockImpl implements AdaptiveBackOffSpinLock {
+    // 自适应退避自旋锁：根据系统负载自动切换自旋锁和可重入锁
+    public class AdaptiveBackOffSpinLockImpl implements AdaptiveBackOffSpinLock {
+    // 当前使用的锁
     private AdaptiveBackOffSpinLock adaptiveLock;
-    //state
+    // 状态
     private AtomicBoolean state = new AtomicBoolean(true);
 
-    // Used to determine the switchover between a mutex lock and a spin lock
+    // 切换自旋锁和可重入锁的阈值比例
     private final static float SWAP_SPIN_LOCK_RATIO = 0.8f;
 
-    // It is used to adjust the spin number K of the escape spin lock
-    // When (retreat number / TPS) <= (1 / BASE_SWAP_ADAPTIVE_RATIO * SPIN_LOCK_ADAPTIVE_RATIO), K is decreased
+    // 自旋锁自适应调整比例
     private final static int SPIN_LOCK_ADAPTIVE_RATIO = 4;
 
-    // It is used to adjust the spin number K of the escape spin lock
-    // When (retreat number / TPS) >= (1 / BASE_SWAP_ADAPTIVE_RATIO), K is increased
+    // 基础切换锁比例
     private final static int BASE_SWAP_LOCK_RATIO = 320;
 
+    // 自旋锁名称
     private final static String BACK_OFF_SPIN_LOCK = "SpinLock";
 
+    // 可重入锁名称
     private final static String REENTRANT_LOCK = "ReentrantLock";
 
+    // 锁映射
     private Map<String, AdaptiveBackOffSpinLock> locks;
 
+    // TPS统计表
     private final List<AtomicInteger> tpsTable;
 
+    // 线程统计表
     private final List<Set<Thread>> threadTable;
 
+    // 切换临界点
     private int swapCriticalPoint;
 
+    // 当前线程数
     private AtomicInteger currentThreadNum = new AtomicInteger(0);
 
+    // 是否开启自适应
     private AtomicBoolean isOpen = new AtomicBoolean(true);
 
     public AdaptiveBackOffSpinLockImpl() {
@@ -74,6 +82,7 @@ public class AdaptiveBackOffSpinLockImpl implements AdaptiveBackOffSpinLock {
         this.tpsTable.add(new AtomicInteger(0));
         this.tpsTable.add(new AtomicInteger(0));
 
+        // 默认使用自旋锁
         adaptiveLock = this.locks.get(BACK_OFF_SPIN_LOCK);
     }
 

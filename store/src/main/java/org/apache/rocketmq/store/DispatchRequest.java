@@ -21,31 +21,49 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.rocketmq.common.MixAll;
 import org.apache.rocketmq.common.message.MessageConst;
 
-public class DispatchRequest {
+    // 消息分发请求：从CommitLog解析出的消息元数据，用于构建ConsumeQueue和IndexFile
+    public class DispatchRequest {
+    // Topic名称
     private final String topic;
+    // 队列ID
     private final int queueId;
+    // 消息在CommitLog中的物理偏移量
     private final long commitLogOffset;
+    // 消息大小
     private int msgSize;
+    // Tag的HashCode，用于消费时按Tag过滤
     private final long tagsCode;
+    // 消息存储时间戳
     private final long storeTimestamp;
+    // 消息在ConsumeQueue中的偏移量
     private final long consumeQueueOffset;
+    // 用户自定义Key（空格分隔）
     private final String keys;
+    // 消息校验是否成功
     private final boolean success;
+    // 消息唯一Key（UniqKey）
     private final String uniqKey;
 
+    // 系统标志（事务、压缩等）
     private final int sysFlag;
+    // 事务消息预处理偏移量
     private final long preparedTransactionOffset;
+    // 消息属性Map
     private final Map<String, String> propertiesMap;
+    // FilterBitMap（用于SQL92过滤）
     private byte[] bitMap;
 
-    private int bufferSize = -1;//the buffer size maybe larger than the msg size if the message is wrapped by something
+    // 缓冲区大小（可能大于消息大小，如果消息被包装）
+    private int bufferSize = -1;
 
-    // for batch consume queue
+    // 批量消费队列相关
     private long  msgBaseOffset = -1;
     private short batchSize = 1;
 
+    // 下次分发的起始偏移量
     private long nextReputFromOffset = -1;
 
+    // 消息偏移量ID
     private String offsetId;
 
     public DispatchRequest(

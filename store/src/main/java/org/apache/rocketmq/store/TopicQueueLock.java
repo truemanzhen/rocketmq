@@ -22,10 +22,14 @@ import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class TopicQueueLock {
+    // TopicQueue锁：按TopicQueue粒度加锁，保证同一队列的消息顺序写入
+    public class TopicQueueLock {
+    // 锁数组大小
     private final int size;
+    // 锁列表
     private final List<Lock> lockList;
 
+    // 默认构造函数（32个锁）
     public TopicQueueLock() {
         this.size = 32;
         this.lockList = new ArrayList<>(32);
@@ -34,6 +38,7 @@ public class TopicQueueLock {
         }
     }
 
+    // 自定义大小构造函数
     public TopicQueueLock(int size) {
         this.size = size;
         this.lockList = new ArrayList<>(size);
@@ -42,11 +47,13 @@ public class TopicQueueLock {
         }
     }
 
+    // 加锁（根据TopicQueueKey的hashCode选择锁）
     public void lock(String topicQueueKey) {
         Lock lock = this.lockList.get((topicQueueKey.hashCode() & 0x7fffffff) % this.size);
         lock.lock();
     }
 
+    // 解锁
     public void unlock(String topicQueueKey) {
         Lock lock = this.lockList.get((topicQueueKey.hashCode() & 0x7fffffff) % this.size);
         lock.unlock();

@@ -18,14 +18,23 @@ package org.apache.rocketmq.store;
 
 import org.apache.rocketmq.store.logfile.MappedFile;
 
-public class FileQueueSnapshot {
+    // 文件队列快照：记录文件队列的状态信息
+    public class FileQueueSnapshot {
+    // 第一个文件
     private MappedFile firstFile;
+    // 第一个文件索引
     private long firstFileIndex;
+    // 最后一个文件
     private MappedFile lastFile;
+    // 最后一个文件索引
     private long lastFileIndex;
+    // 当前文件偏移量
     private long currentFile;
+    // 当前文件索引
     private long currentFileIndex;
+    // 落后文件数
     private long behindCount;
+    // 当前文件是否存在
     private boolean exist;
 
     public FileQueueSnapshot() {

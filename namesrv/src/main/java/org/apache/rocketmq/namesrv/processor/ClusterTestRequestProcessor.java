@@ -39,6 +39,7 @@ public class ClusterTestRequestProcessor extends ClientRequestProcessor {
     public ClusterTestRequestProcessor(NamesrvController namesrvController, String productEnvName) {
         super(namesrvController);
         this.productEnvName = productEnvName;
+        // 创建MQAdmin客户端，用于从生产环境NameServer获取路由信息
         adminExt = new DefaultMQAdminExt();
         adminExt.setInstanceName("CLUSTER_TEST_NS_INS_" + productEnvName);
         adminExt.setUnitName(productEnvName);
@@ -56,6 +57,7 @@ public class ClusterTestRequestProcessor extends ClientRequestProcessor {
         final GetRouteInfoRequestHeader requestHeader =
             (GetRouteInfoRequestHeader) request.decodeCommandCustomHeader(GetRouteInfoRequestHeader.class);
 
+        // 先从本地NameServer查找路由
         TopicRouteData topicRouteData = this.namesrvController.getRouteInfoManager().pickupTopicRouteData(requestHeader.getTopic());
         if (topicRouteData != null) {
             String orderTopicConf =
@@ -64,6 +66,7 @@ public class ClusterTestRequestProcessor extends ClientRequestProcessor {
             topicRouteData.setOrderTopicConf(orderTopicConf);
         } else {
             try {
+                // 本地不存在时，从生产环境NameServer获取路由信息（集群测试场景）
                 topicRouteData = adminExt.examineTopicRouteInfo(requestHeader.getTopic());
             } catch (Exception e) {
                 log.info("get route info by topic from product environment failed. envName={},", productEnvName);

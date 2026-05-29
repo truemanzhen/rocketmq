@@ -28,20 +28,33 @@ import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 import org.apache.rocketmq.store.logfile.DefaultMappedFile;
 
-public class StoreCheckpoint {
+    // 存储检查点：记录消息存储的各种时间戳和偏移量，用于数据恢复
+    public class StoreCheckpoint {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
+    // 随机访问文件
     private final RandomAccessFile randomAccessFile;
+    // 文件通道
     private final FileChannel fileChannel;
+    // 内存映射缓冲区
     private final MappedByteBuffer mappedByteBuffer;
+    // 临时逻辑消息时间戳
     private volatile long tmpLogicsMsgTimestamp = 0;
+    // 物理消息时间戳
     private volatile long physicMsgTimestamp = 0;
+    // 逻辑消息时间戳
     private volatile long logicsMsgTimestamp = 0;
+    // 临时逻辑物理偏移量
     private volatile long tmpLogicsPhysicalOffset = 0;
+    // 逻辑物理偏移量
     private volatile long logicsPhysicalOffset = 0;
+    // 索引消息时间戳
     private volatile long indexMsgTimestamp = 0;
+    // Master刷盘偏移量
     private volatile long masterFlushedOffset = 0;
+    // 确认物理偏移量
     private volatile long confirmPhyOffset = 0;
 
+    // 构造函数：加载或创建检查点文件
     public StoreCheckpoint(final String scpPath) throws IOException {
         File file = new File(scpPath);
         UtilAll.ensureDirOK(file.getParent());
@@ -51,6 +64,7 @@ public class StoreCheckpoint {
         this.fileChannel = this.randomAccessFile.getChannel();
         this.mappedByteBuffer = fileChannel.map(MapMode.READ_WRITE, 0, DefaultMappedFile.OS_PAGE_SIZE);
 
+        // 如果文件存在，读取检查点数据
         if (fileExists) {
             log.info("store checkpoint file exists, " + scpPath);
             this.physicMsgTimestamp = this.mappedByteBuffer.getLong(0);

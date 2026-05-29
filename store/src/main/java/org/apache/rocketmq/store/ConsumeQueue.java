@@ -41,35 +41,85 @@ import org.apache.rocketmq.store.queue.MultiDispatchUtils;
 import org.apache.rocketmq.store.queue.QueueOffsetOperator;
 import org.apache.rocketmq.store.queue.ReferredIterator;
 
+/**
+ * ConsumeQueue是RocketMQ的消息消费索引，用于快速定位消息在CommitLog中的位置。
+ *
+ * <h3>核心职责</h3>
+ * <ul>
+ *   <li>消息索引：记录消息在CommitLog中的物理偏移量</li>
+ *   <li>消费进度：记录每个消费者组的消费位置</li>
+ *   <li>消息过滤：支持按Tag过滤消息</li>
+ * </ul>
+ *
+ * <h3>存储格式</h3>
+ * <pre>
+ * ┌───────────────────────────────┬───────────────────┬───────────────────────────────┐
+ * │    CommitLog Physical Offset  │      Body Size    │            Tag HashCode       │
+ * │          (8 Bytes)            │      (4 Bytes)    │             (8 Bytes)         │
+ * ├───────────────────────────────┴───────────────────┴───────────────────────────────┤
+ * │                                     Store Unit (20 Bytes)                         │
+ * </pre>
+ *
+ * <h3>文件结构</h3>
+ * <pre>
+ * store/consumequeue/{topic}/{queueId}/
+ *   ├── 00000000000000000000  (第一个文件)
+ *   ├── 00000000000000600000  (第二个文件)
+ *   └── ...
+ * </pre>
+ *
+ * <h3>使用示例</h3>
+ * <pre>{@code
+ * // 查找消息
+ * ConsumeQueue cq = messageStore.findConsumeQueue("TopicA", 0);
+ * ReferredIterator<CqUnit> iterator = cq.iterateFrom(offset);
+ * while (iterator.hasNext()) {
+ *     CqUnit unit = iterator.next();
+ *     long commitLogOffset = unit.getPos();
+ *     // 从CommitLog读取消息
+ * }
+ * }</pre>
+ *
+ * @see CommitLog
+ * @see CqUnit
+ */
 public class ConsumeQueue implements ConsumeQueueInterface {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
     /**
-     * ConsumeQueue's store unit. Format:
-     * <pre>
+     * ConsumeQueue条目格式：
      * ┌───────────────────────────────┬───────────────────┬───────────────────────────────┐
      * │    CommitLog Physical Offset  │      Body Size    │            Tag HashCode       │
      * │          (8 Bytes)            │      (4 Bytes)    │             (8 Bytes)         │
      * ├───────────────────────────────┴───────────────────┴───────────────────────────────┤
-     * │                                     Store Unit                                    │
-     * │                                                                                   │
+     * │                                     Store Unit (20 Bytes)                         │
      * </pre>
-     * ConsumeQueue's store unit. Size: CommitLog Physical Offset(8) + Body Size(4) + Tag HashCode(8) = 20 Bytes
      */
+    // 条目大小（20字节）
     public static final int CQ_STORE_UNIT_SIZE = 20;
+    // Tag HashCode在条目中的偏移量
     public static final int MSG_TAG_OFFSET_INDEX = 12;
     private static final Logger LOG_ERROR = LoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
+    // 消息存储引用
     private final MessageStore messageStore;
+    // ConsumeQueue存储管理器
     private final ConsumeQueueStore consumeQueueStore;
 
+    // MappedFile队列
     private final MappedFileQueue mappedFileQueue;
+    // Topic名称
     private final String topic;
+    // 队列ID
     private final int queueId;
+    // 条目读取缓冲区
     private final ByteBuffer byteBufferIndex;
 
+    // 存储路径
     private final String storePath;
+    // 文件大小
     private final int mappedFileSize;
+    // 最大物理偏移量
     private long maxPhysicOffset = -1;
 
     /**
@@ -93,6 +143,7 @@ public class ConsumeQueue implements ConsumeQueueInterface {
         this.topic = topic;
         this.queueId = queueId;
 
+        // ConsumeQueue目录：storePath/topic/queueId
         String queueDir = this.storePath
             + File.separator + topic
             + File.separator + queueId;
@@ -102,10 +153,13 @@ public class ConsumeQueue implements ConsumeQueueInterface {
             writeWithoutMmap = messageStore.getMessageStoreConfig().isWriteWithoutMmap();
         }
 
+        // 创建MappedFileQueue管理ConsumeQueue文件
         this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null, writeWithoutMmap);
 
+        // 每个索引条目20字节：8字节物理偏移量 + 4字节消息大小 + 8字节TagHashCode
         this.byteBufferIndex = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
 
+        // 如果启用ConsumeQueue扩展，创建扩展存储（支持FilterBitMap）
         if (messageStore.getMessageStoreConfig().isEnableConsumeQueueExt()) {
             this.consumeQueueExt = new ConsumeQueueExt(
                 topic,
@@ -408,10 +462,12 @@ public class ConsumeQueue implements ConsumeQueueInterface {
     }
 
     @Override
+    // 截断超出指定物理偏移量的脏逻辑文件
     public void truncateDirtyLogicFiles(long phyOffset) {
         truncateDirtyLogicFiles(phyOffset, true);
     }
 
+    // 截断脏逻辑文件，找到并清除超出有效物理偏移量的索引条目
     public void truncateDirtyLogicFiles(long phyOffset, boolean deleteFile) {
 
         int logicFileSize = this.mappedFileSize;
@@ -685,11 +741,13 @@ public class ConsumeQueue implements ConsumeQueueInterface {
     }
 
     @Override
+    // 将消息在CommitLog中的位置信息写入ConsumeQueue（由DispatchRequest触发）
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
         final int maxRetries = 30;
         boolean canWrite = this.messageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
             long tagsCode = request.getTagsCode();
+            // 如果启用ConsumeQueue扩展，将FilterBitMap等信息写入扩展存储
             if (isExtWriteEnable()) {
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                 cqExtUnit.setFilterBitMap(request.getBitMap());
@@ -704,15 +762,18 @@ public class ConsumeQueue implements ConsumeQueueInterface {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
+            // 写入ConsumeQueue索引条目：CommitLog偏移量 + 消息大小 + TagHashCode
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             if (result) {
+                // 更新检查点时间戳
                 if (this.messageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE ||
                     this.messageStore.getMessageStoreConfig().isEnableDLegerCommitLog()) {
                     this.messageStore.getStoreCheckpoint().setPhysicMsgTimestamp(request.getStoreTimestamp());
                 }
                 this.messageStore.getStoreCheckpoint().setTmpLogicsMsgTimestamp(request.getStoreTimestamp());
                 this.messageStore.getStoreCheckpoint().setTmpLogicsPhysicalOffset(request.getCommitLogOffset());
+                // 处理多队列分发（轻量级消息队列）
                 if (MultiDispatchUtils.checkMultiDispatchQueue(this.messageStore.getMessageStoreConfig(), request)) {
                     multiDispatchLmqQueue(request, maxRetries);
                 }

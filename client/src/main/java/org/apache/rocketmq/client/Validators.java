@@ -33,20 +33,24 @@ import org.apache.rocketmq.remoting.protocol.ResponseCode;
 import static org.apache.rocketmq.common.topic.TopicValidator.isTopicOrGroupIllegal;
 
 /**
- * Common Validator
+ * 通用验证器：验证Topic、Group、消息的合法性。
+ *
+ * <h3>验证规则</h3>
+ * <ul>
+ *   <li>Topic：最大127字符，只能包含字母、数字、下划线、连字符</li>
+ *   <li>Group：最大120字符，只能包含字母、数字、下划线、连字符</li>
+ *   <li>消息体：不能为null，长度不能超过最大限制</li>
+ * </ul>
  */
 public class Validators {
+    // 字符最大长度
     public static final int CHARACTER_MAX_LENGTH = 255;
+    // Topic最大长度
     public static final int TOPIC_MAX_LENGTH = 127;
-    /*
-     * Group name max length is 120, for it will be used to make up retry and DLQ topic,
-     * like pull retry: %RETRY%group_topic and pop retry: %RETRY%group_topic.
-     */
+    // Group最大长度（120字符，因为要用于构建重试和死信Topic）
     public static final int GROUP_MAX_LENGTH = 120;
 
-    /**
-     * Validate group
-     */
+    // 验证Group名称
     public static void checkGroup(String group) throws MQClientException {
         if (UtilAll.isBlank(group)) {
             throw new MQClientException("the specified group is blank", null);
@@ -63,15 +67,16 @@ public class Validators {
         }
     }
 
+    // 验证消息
     public static void checkMessage(Message msg, DefaultMQProducer defaultMQProducer) throws MQClientException {
         if (null == msg) {
             throw new MQClientException(ResponseCode.MESSAGE_ILLEGAL, "the message is null");
         }
-        // topic
+        // 验证Topic
         Validators.checkTopic(msg.getTopic());
         Validators.isNotAllowedSendTopic(msg.getTopic());
 
-        // body
+        // 验证消息体
         if (null == msg.getBody()) {
             throw new MQClientException(ResponseCode.MESSAGE_ILLEGAL, "the message body is null");
         }
@@ -85,6 +90,7 @@ public class Validators {
                 "the message body size over max value, MAX: " + defaultMQProducer.getMaxMessageSize());
         }
 
+        // 验证LMQ路径不能包含文件分隔符
         String lmqPath = msg.getUserProperty(MessageConst.PROPERTY_INNER_MULTI_DISPATCH);
         if (StringUtils.contains(lmqPath, File.separator)) {
             throw new MQClientException(ResponseCode.MESSAGE_ILLEGAL,
@@ -92,6 +98,7 @@ public class Validators {
         }
     }
 
+    // 验证Topic名称
     public static void checkTopic(String topic) throws MQClientException {
         if (UtilAll.isBlank(topic)) {
             throw new MQClientException("The specified topic is blank", null);

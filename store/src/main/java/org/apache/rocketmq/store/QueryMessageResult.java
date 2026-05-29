@@ -20,53 +20,68 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-public class QueryMessageResult {
+    // 消息查询结果：包含按Key查询到的消息数据
+    public class QueryMessageResult {
 
+    // 消息MappedBuffer列表
     private final List<SelectMappedBufferResult> messageMapedList =
         new ArrayList<>(100);
 
+    // 消息ByteBuffer列表
     private final List<ByteBuffer> messageBufferList = new ArrayList<>(100);
+    // 索引最后更新时间戳
     private long indexLastUpdateTimestamp;
+    // 索引最后更新物理偏移量
     private long indexLastUpdatePhyoffset;
 
+    // 缓冲区总大小
     private int bufferTotalSize = 0;
 
+    // 添加消息
     public void addMessage(final SelectMappedBufferResult mapedBuffer) {
         this.messageMapedList.add(mapedBuffer);
         this.messageBufferList.add(mapedBuffer.getByteBuffer());
         this.bufferTotalSize += mapedBuffer.getSize();
     }
 
+    // 释放所有资源
     public void release() {
         for (SelectMappedBufferResult select : this.messageMapedList) {
             select.release();
         }
     }
 
+    // 获取索引最后更新时间戳
     public long getIndexLastUpdateTimestamp() {
         return indexLastUpdateTimestamp;
     }
 
+    // 设置索引最后更新时间戳
     public void setIndexLastUpdateTimestamp(long indexLastUpdateTimestamp) {
         this.indexLastUpdateTimestamp = indexLastUpdateTimestamp;
     }
 
+    // 获取索引最后更新物理偏移量
     public long getIndexLastUpdatePhyoffset() {
         return indexLastUpdatePhyoffset;
     }
 
+    // 设置索引最后更新物理偏移量
     public void setIndexLastUpdatePhyoffset(long indexLastUpdatePhyoffset) {
         this.indexLastUpdatePhyoffset = indexLastUpdatePhyoffset;
     }
 
+    // 获取消息ByteBuffer列表
     public List<ByteBuffer> getMessageBufferList() {
         return messageBufferList;
     }
 
+    // 获取缓冲区总大小
     public int getBufferTotalSize() {
         return bufferTotalSize;
     }
 
+    // 获取消息MappedBuffer列表
     public List<SelectMappedBufferResult> getMessageMapedList() {
         return messageMapedList;
     }

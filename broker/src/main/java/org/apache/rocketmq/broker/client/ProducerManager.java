@@ -37,16 +37,25 @@ import org.apache.rocketmq.remoting.protocol.body.ProducerInfo;
 import org.apache.rocketmq.remoting.protocol.body.ProducerTableInfo;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
-public class ProducerManager {
+    // 生产者管理器：管理Producer的注册、心跳、连接
+    public class ProducerManager {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
+    // Channel过期超时时间（120秒）
     private static final long CHANNEL_EXPIRED_TIMEOUT = 1000 * 120;
+    // 获取可用Channel的重试次数
     private static final int GET_AVAILABLE_CHANNEL_RETRY_COUNT = 3;
+    // Group-Channel映射表
     private final ConcurrentMap<String /* group name */, ConcurrentMap<Channel, ClientChannelInfo>> groupChannelTable =
         new ConcurrentHashMap<>();
+    // ClientId-Channel映射表
     private final ConcurrentMap<String, Channel> clientChannelTable = new ConcurrentHashMap<>();
+    // 统计管理器
     protected final BrokerStatsManager brokerStatsManager;
+    // Broker配置
     private final BrokerConfig brokerConfig;
+    // 正原子计数器
     private final PositiveAtomicCounter positiveAtomicCounter = new PositiveAtomicCounter();
+    // 生产者变更监听器
     private final List<ProducerChangeListener> producerChangeListenerList = new CopyOnWriteArrayList<>();
 
     public ProducerManager() {
@@ -64,10 +73,12 @@ public class ProducerManager {
         this.brokerConfig = brokerConfig;
     }
 
+    // 获取Group数量
     public int groupSize() {
         return this.groupChannelTable.size();
     }
 
+    // 检查Group是否在线
     public boolean groupOnline(String group) {
         Map<Channel, ClientChannelInfo> channels = this.groupChannelTable.get(group);
         return channels != null && !channels.isEmpty();

@@ -193,19 +193,62 @@ import org.apache.rocketmq.store.timer.TimerMetrics;
 import org.apache.rocketmq.store.timer.rocksdb.TimerMessageRocksDBStore;
 import org.apache.rocketmq.store.transaction.TransMessageRocksDBStore;
 
+/**
+ * BrokerController是RocketMQ Broker的核心控制器，负责管理Broker的所有组件。
+ *
+ * <h3>核心职责</h3>
+ * <ul>
+ *   <li>消息存储：管理CommitLog、ConsumeQueue、IndexFile</li>
+ *   <li>消息处理：处理Producer发送的消息和Consumer拉取的请求</li>
+ *   <li>连接管理：管理Producer和Consumer的连接</li>
+ *   <li>路由管理：向NameServer注册路由信息</li>
+ *   <li>高可用：支持主从复制和故障切换</li>
+ *   <li>定时任务：心跳、消费进度持久化等</li>
+ * </ul>
+ *
+ * <h3>组件架构</h3>
+ * <pre>
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │                    BrokerController                          │
+ * │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+ * │  │ NettyServer │  │ MessageStore│  │  HAService  │         │
+ * │  └─────────────┘  └─────────────┘  └─────────────┘         │
+ * │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+ * │  │ConsumerMgr  │  │ ProducerMgr │  │TopicConfigMgr│        │
+ * │  └─────────────┘  └─────────────┘  └─────────────┘         │
+ * └─────────────────────────────────────────────────────────────┘
+ * </pre>
+ *
+ * <h3>启动流程</h3>
+ * <pre>
+ * main() → createBrokerController() → controller.initialize() → controller.start()
+ * </pre>
+ *
+ * @see DefaultMessageStore
+ * @see SendMessageProcessor
+ * @see PullMessageProcessor
+ */
 public class BrokerController {
     protected static final Logger LOG = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private static final Logger LOG_PROTECTION = LoggerFactory.getLogger(LoggerName.PROTECTION_LOGGER_NAME);
     private static final Logger LOG_WATER_MARK = LoggerFactory.getLogger(LoggerName.WATER_MARK_LOGGER_NAME);
     protected static final int HA_ADDRESS_MIN_LENGTH = 6;
 
+    // Broker配置
     protected final BrokerConfig brokerConfig;
+    // Netty服务端配置
     private final NettyServerConfig nettyServerConfig;
+    // Netty客户端配置
     private final NettyClientConfig nettyClientConfig;
+    // 消息存储配置
     protected final MessageStoreConfig messageStoreConfig;
+    // 认证配置
     private final AuthConfig authConfig;
+    // 消费偏移量管理器
     protected ConsumerOffsetManager consumerOffsetManager;
+    // 广播模式偏移量管理器
     protected final BroadcastOffsetManager broadcastOffsetManager;
+    // 消费者管理器
     protected final ConsumerManager consumerManager;
     protected final ConsumerFilterManager consumerFilterManager;
     protected final ConsumerOrderInfoManager consumerOrderInfoManager;
@@ -362,6 +405,7 @@ public class BrokerController {
         this(brokerConfig, nettyServerConfig, nettyClientConfig, messageStoreConfig, null);
     }
 
+    // BrokerController构造函数：初始化Broker的所有核心组件
     public BrokerController(
         final BrokerConfig brokerConfig,
         final NettyServerConfig nettyServerConfig,
@@ -375,8 +419,11 @@ public class BrokerController {
         this.messageStoreConfig = messageStoreConfig;
         this.authConfig = authConfig;
         this.setStoreHost(new InetSocketAddress(this.getBrokerConfig().getBrokerIP1(), getListenPort()));
+        // 统计管理器：记录消息收发统计信息
         this.brokerStatsManager = messageStoreConfig.isEnableLmq() ? new LmqBrokerStatsManager(this.brokerConfig) : new BrokerStatsManager(this.brokerConfig.getBrokerClusterName(), this.brokerConfig.isEnableDetailStat());
+        // 广播模式偏移量管理器
         this.broadcastOffsetManager = new BroadcastOffsetManager(this);
+        // 根据配置版本创建不同的配置管理器（V2/RocksDB/传统模式）
         if (ConfigManagerVersion.V2.getVersion().equals(brokerConfig.getConfigManagerVersion())) {
             this.configStorage = new ConfigStorage(messageStoreConfig);
             this.topicConfigManager = new TopicConfigManagerV2(this, configStorage);
@@ -391,10 +438,14 @@ public class BrokerController {
             this.subscriptionGroupManager = messageStoreConfig.isEnableLmq() ? new LmqSubscriptionGroupManager(this) : new SubscriptionGroupManager(this);
             this.consumerOffsetManager = messageStoreConfig.isEnableLmq() ? new LmqConsumerOffsetManager(this) : new ConsumerOffsetManager(this);
         }
+        // Topic队列映射管理器（静态Topic路由）
         this.topicQueueMappingManager = new TopicQueueMappingManager(this);
+        // 认证授权管理器
         this.authenticationMetadataManager = AuthenticationFactory.getMetadataManager(this.authConfig);
         this.authorizationMetadataManager = AuthorizationFactory.getMetadataManager(this.authConfig);
+        // Topic路由信息管理器
         this.topicRouteInfoManager = new TopicRouteInfoManager(this);
+        // Lite模式组件（轻量级消息队列）
         this.liteSharding = new LiteShardingImpl(this, this.topicRouteInfoManager);
         this.liteLifecycleManager = this.messageStoreConfig.isEnableRocksDBStore() || this.messageStoreConfig.isRocksdbCQDoubleWriteEnable() ?
             new RocksDBLiteLifecycleManager(this, this.liteSharding) : new LiteLifecycleManager(this, this.liteSharding);
@@ -402,9 +453,12 @@ public class BrokerController {
         this.liteSubscriptionCtlProcessor = new LiteSubscriptionCtlProcessor(this, liteSubscriptionRegistry);
         this.liteEventDispatcher = new LiteEventDispatcher(this, this.liteSubscriptionRegistry, this.liteLifecycleManager);
         this.liteManagerProcessor = new LiteManagerProcessor(this, liteLifecycleManager, liteSharding);
+        // 消息处理器：拉取、发送、确认、查询等
         this.pullMessageProcessor = new PullMessageProcessor(this);
         this.peekMessageProcessor = new PeekMessageProcessor(this);
+        // 长轮询服务：当没有消息时挂起请求，有消息时唤醒
         this.pullRequestHoldService = messageStoreConfig.isEnableLmq() ? new LmqPullRequestHoldService(this) : new PullRequestHoldService(this);
+        // Pop模式消息处理器
         this.popMessageProcessor = new PopMessageProcessor(this);
         this.popLiteMessageProcessor = new PopLiteMessageProcessor(this, this.liteEventDispatcher);
         this.notificationProcessor = new NotificationProcessor(this);
@@ -414,29 +468,39 @@ public class BrokerController {
         this.sendMessageProcessor = new SendMessageProcessor(this);
         this.recallMessageProcessor = new RecallMessageProcessor(this);
         this.replyMessageProcessor = new ReplyMessageProcessor(this);
+        // 消息到达监听器：通知长轮询和Pop消费者
         this.messageArrivingListener = new NotifyMessageArrivingListener(this.pullRequestHoldService, this.popMessageProcessor, this.notificationProcessor, this.liteEventDispatcher);
+        // 消费者管理器：管理消费者注册、心跳、订阅关系
         this.consumerIdsChangeListener = new DefaultConsumerIdsChangeListener(this);
         this.consumerManager = new ConsumerManager(this.consumerIdsChangeListener, this.brokerStatsManager, this.brokerConfig);
+        // 生产者管理器：管理生产者注册、心跳
         this.producerManager = new ProducerManager(this.brokerStatsManager);
+        // 消费者过滤管理器（SQL92过滤）
         this.consumerFilterManager = new ConsumerFilterManager(this);
         this.consumerOrderInfoManager = new QueueLevelConsumerManager(this);
         this.popInflightMessageCounter = new PopInflightMessageCounter(this);
         this.popConsumerService = brokerConfig.isPopConsumerKVServiceInit() ? new PopConsumerService(this) : null;
+        // 客户端连接管理服务
         this.clientHousekeepingService = new ClientHousekeepingService(this);
         this.broker2Client = new Broker2Client(this);
+        // 定时消息服务
         this.scheduleMessageService = new ScheduleMessageService(this);
+        // 冷数据拉取服务
         this.coldDataPullRequestHoldService = new ColdDataPullRequestHoldService(this);
         this.coldDataCgCtrService = new ColdDataCgCtrService(this);
 
+        // Broker对外API（用于与NameServer和其他Broker通信）
         if (nettyClientConfig != null) {
             this.brokerOuterAPI = new BrokerOuterAPI(nettyClientConfig, authConfig);
         }
 
+        // 负载均衡、客户端管理、从节点同步、事务处理器
         this.queryAssignmentProcessor = new QueryAssignmentProcessor(this);
         this.clientManageProcessor = new ClientManageProcessor(this);
         this.slaveSynchronize = new SlaveSynchronize(this);
         this.endTransactionProcessor = new EndTransactionProcessor(this);
 
+        // 各种请求的线程池队列
         this.sendThreadPoolQueue = new LinkedBlockingQueue<>(this.brokerConfig.getSendThreadPoolQueueCapacity());
         this.putThreadPoolQueue = new LinkedBlockingQueue<>(this.brokerConfig.getPutThreadPoolQueueCapacity());
         this.pullThreadPoolQueue = new LinkedBlockingQueue<>(this.brokerConfig.getPullThreadPoolQueueCapacity());
@@ -452,6 +516,7 @@ public class BrokerController {
         this.adminBrokerThreadPoolQueue = new LinkedBlockingQueue<>(this.brokerConfig.getAdminBrokerThreadPoolQueueCapacity());
         this.loadBalanceThreadPoolQueue = new LinkedBlockingQueue<>(this.brokerConfig.getLoadBalanceThreadPoolQueueCapacity());
 
+        // 快速失败机制：当线程池满时快速返回失败
         this.brokerFastFailure = new BrokerFastFailure(this);
 
         String brokerConfigPath;
@@ -912,35 +977,43 @@ public class BrokerController {
         return result;
     }
 
+    // 初始化Broker：元数据 → 消息存储 → 恢复和服务初始化
     public boolean initialize() throws CloneNotSupportedException {
 
+        // 初始化元数据（Topic配置、订阅组、消费偏移量等）
         boolean result = this.initializeMetadata();
         if (!result) {
             return false;
         }
 
+        // 初始化消息存储引擎
         result = this.initializeMessageStore();
         if (!result) {
             return false;
         }
 
+        // 恢复数据并初始化服务
         return this.recoverAndInitService();
     }
 
+    // 恢复数据并初始化所有服务组件
     public boolean recoverAndInitService() throws CloneNotSupportedException {
 
         boolean result = true;
 
+        // Controller模式下初始化副本管理器
         if (this.brokerConfig.isEnableControllerMode()) {
             this.replicasManager = new ReplicasManager(this);
             this.replicasManager.setFenced(true);
         }
 
+        // 加载消息存储数据
         if (messageStore != null) {
             registerMessageStoreHook();
             result = this.messageStore.load();
         }
 
+        // 加载定时消息存储
         if (messageStoreConfig.isTimerWheelEnable()) {
             result = result && this.timerMessageStore.load();
             if (messageStoreConfig.isTimerRocksDBEnable()) {
@@ -948,33 +1021,42 @@ public class BrokerController {
             }
         }
 
-        //scheduleMessageService load after messageStore load success
+        // 加载定时消息服务（在消息存储加载成功后）
         result = result && this.scheduleMessageService.load();
 
+        // 初始化Lite模式服务
         result = result && initLiteService();
 
+        // 加载Broker附加插件
         for (BrokerAttachedPlugin brokerAttachedPlugin : brokerAttachedPlugins) {
             if (brokerAttachedPlugin != null) {
                 result = result && brokerAttachedPlugin.load();
             }
         }
 
+        // 初始化Broker指标管理器
         this.brokerMetricsManager = new BrokerMetricsManager(this);
 
         if (result) {
-
+            // 初始化Netty Remoting服务器
             initializeRemotingServer();
 
+            // 初始化线程池等资源
             initializeResources();
 
+            // 注册各种请求处理器
             registerProcessor();
 
+            // 初始化定时任务（心跳、消费者偏移量持久化等）
             initializeScheduledTasks();
 
+            // 初始化事务消息服务
             initialTransaction();
 
+            // 注册RPC钩子
             initialRpcHooks();
 
+            // 初始化请求管道（认证、授权）
             initialRequestPipeline();
 
             if (TlsSystemConfig.tlsMode != TlsMode.DISABLED) {
@@ -1957,25 +2039,32 @@ public class BrokerController {
         }
     }
 
+    // 启动Broker的所有服务
     public void start() throws Exception {
 
+        // 设置启动后的延迟时间（用于灰度发布）
         this.shouldStartTime = System.currentTimeMillis() + messageStoreConfig.getDisappearTimeAfterStart();
 
+        // 多副本且启用Slave Acting Master模式时，初始为隔离状态
         if (messageStoreConfig.getTotalReplicas() > 1 && this.brokerConfig.isEnableSlaveActingMaster()) {
             isIsolated = true;
         }
 
+        // 启动Broker对外API（与NameServer和其他Broker通信）
         if (this.brokerOuterAPI != null) {
             this.brokerOuterAPI.start();
         }
 
+        // 启动基础服务（消息存储、长轮询、定时任务等）
         startBasicService();
 
+        // 非隔离模式下，根据角色启动特殊服务并注册到NameServer
         if (!isIsolated && !this.messageStoreConfig.isEnableDLegerCommitLog() && !this.messageStoreConfig.isDuplicationEnable()) {
             changeSpecialServiceStatus(this.brokerConfig.getBrokerId() == MixAll.MASTER_ID);
             this.registerBrokerAll(true, false, true);
         }
 
+        // 定时向NameServer注册（默认每30秒一次）
         scheduledFutures.add(this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -1995,6 +2084,7 @@ public class BrokerController {
             }
         }, 1000 * 10, Math.max(10000, Math.min(brokerConfig.getRegisterNameServerPeriod(), 60000)), TimeUnit.MILLISECONDS));
 
+        // Slave Acting Master模式下，定时发送心跳和同步Broker成员组
         if (this.brokerConfig.isEnableSlaveActingMaster()) {
             scheduleSendHeartbeat();
 
@@ -2010,10 +2100,12 @@ public class BrokerController {
             }, 1000, this.brokerConfig.getSyncBrokerMemberGroupPeriod(), TimeUnit.MILLISECONDS));
         }
 
+        // Controller模式下定时发送心跳
         if (this.brokerConfig.isEnableControllerMode()) {
             scheduleSendHeartbeat();
         }
 
+        // 如果跳过预上线阶段，直接启动所有服务
         if (brokerConfig.isSkipPreOnline()) {
             startServiceWithoutCondition();
         }

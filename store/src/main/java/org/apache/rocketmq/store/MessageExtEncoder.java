@@ -57,12 +57,19 @@ public class MessageExtEncoder {
         this.crc32ReservedLength = messageStoreConfig.isEnabledAppendPropCRC() ? CommitLog.CRC32_RESERVED_LEN : 0;
     }
 
+    // 计算消息在CommitLog中的总长度
     public static int calMsgLength(MessageVersion messageVersion,
         int sysFlag, int bodyLength, int topicLength, int propertiesLength) {
 
+        // 根据IPv4/IPv6标志计算地址长度
         int bornhostLength = (sysFlag & MessageSysFlag.BORNHOST_V6_FLAG) == 0 ? 8 : 20;
         int storehostAddressLength = (sysFlag & MessageSysFlag.STOREHOSTADDRESS_V6_FLAG) == 0 ? 8 : 20;
 
+        // 消息格式：TOTALSIZE(4) + MAGICCODE(4) + BODYCRC(4) + QUEUEID(4) + FLAG(4)
+        //         + QUEUEOFFSET(8) + PHYSICALOFFSET(8) + SYSFLAG(4) + BORNTIMESTAMP(8)
+        //         + BORNHOST(8/20) + STORETIMESTAMP(8) + STOREHOSTADDRESS(8/20)
+        //         + RECONSUMETIMES(4) + PreparedTransactionOffset(8)
+        //         + BODY(4+bodyLength) + TOPIC(1/2+topicLength) + PROPERTIES(2+propertiesLength)
         return 4 //TOTALSIZE
             + 4 //MAGICCODE
             + 4 //BODYCRC

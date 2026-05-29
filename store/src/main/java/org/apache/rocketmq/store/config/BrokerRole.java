@@ -16,8 +16,12 @@
  */
 package org.apache.rocketmq.store.config;
 
-public enum BrokerRole {
+    // Broker角色枚举
+    public enum BrokerRole {
+    // 异步主节点：消息写入主节点后立即返回，异步复制到从节点
     ASYNC_MASTER,
+    // 同步主节点：消息写入主节点并同步复制到从节点后才返回
     SYNC_MASTER,
+    // 从节点：只接收来自主节点的复制消息
     SLAVE;
 }

@@ -25,10 +25,15 @@ import org.apache.rocketmq.broker.processor.PopMessageProcessor;
 import org.apache.rocketmq.common.lite.LiteUtil;
 import org.apache.rocketmq.store.MessageArrivingListener;
 
-public class NotifyMessageArrivingListener implements MessageArrivingListener {
+    // 消息到达监听器：当新消息到达时通知各个服务
+    public class NotifyMessageArrivingListener implements MessageArrivingListener {
+    // 拉取请求挂起服务
     private final PullRequestHoldService pullRequestHoldService;
+    // Pop消息处理器
     private final PopMessageProcessor popMessageProcessor;
+    // 通知处理器
     private final NotificationProcessor notificationProcessor;
+    // Lite事件分发器
     private final LiteEventDispatcher liteEventDispatcher;
 
     public NotifyMessageArrivingListener(final PullRequestHoldService pullRequestHoldService, final PopMessageProcessor popMessageProcessor, final NotificationProcessor notificationProcessor, final LiteEventDispatcher liteEventDispatcher) {
@@ -39,16 +44,21 @@ public class NotifyMessageArrivingListener implements MessageArrivingListener {
     }
 
     @Override
+    // 消息到达时的回调
     public void arriving(String topic, int queueId, long logicOffset, long tagsCode,
                          long msgStoreTime, byte[] filterBitMap, Map<String, String> properties) {
+        // LiteTopic队列走LiteEventDispatcher
         if (LiteUtil.isLiteTopicQueue(topic)) {
             this.liteEventDispatcher.dispatch(null, topic, queueId, logicOffset, msgStoreTime);
             return;
         }
+        // 通知长轮询服务
         this.pullRequestHoldService.notifyMessageArriving(
             topic, queueId, logicOffset, tagsCode, msgStoreTime, filterBitMap, properties);
+        // 通知Pop消息处理器
         this.popMessageProcessor.notifyMessageArriving(
             topic, queueId, logicOffset, tagsCode, msgStoreTime, filterBitMap, properties);
+        // 通知处理器
         this.notificationProcessor.notifyMessageArriving(
             topic, queueId, logicOffset, tagsCode, msgStoreTime, filterBitMap, properties);
     }

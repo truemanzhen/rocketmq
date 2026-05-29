@@ -32,18 +32,20 @@ import org.apache.rocketmq.store.PutMessageStatus;
 import org.apache.rocketmq.store.ha.autoswitch.AutoSwitchHAConnection;
 import org.apache.rocketmq.store.ha.autoswitch.AutoSwitchHAService;
 
-/**
- * GroupTransferService Service
- */
-public class GroupTransferService extends ServiceThread {
+    // 组传输服务：同步复制时等待Slave确认收到消息
+    public class GroupTransferService extends ServiceThread {
 
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // 等待传输通知对象
     private final WaitNotifyObject notifyTransferObject = new WaitNotifyObject();
+    // 写入锁
     private final PutMessageSpinLock lock = new PutMessageSpinLock();
     private final DefaultMessageStore defaultMessageStore;
     private final HAService haService;
+    // 写请求列表（双缓冲）
     private volatile List<CommitLog.GroupCommitRequest> requestsWrite = new LinkedList<>();
+    // 读请求列表（双缓冲）
     private volatile List<CommitLog.GroupCommitRequest> requestsRead = new LinkedList<>();
 
     public GroupTransferService(final HAService haService, final DefaultMessageStore defaultMessageStore) {
@@ -51,6 +53,7 @@ public class GroupTransferService extends ServiceThread {
         this.defaultMessageStore = defaultMessageStore;
     }
 
+    // 提交同步复制请求
     public void putRequest(final CommitLog.GroupCommitRequest request) {
         lock.lock();
         try {
@@ -61,10 +64,12 @@ public class GroupTransferService extends ServiceThread {
         wakeup();
     }
 
+    // 通知传输完成
     public void notifyTransferSome() {
         this.notifyTransferObject.wakeup();
     }
 
+    // 交换读写缓冲区
     private void swapRequests() {
         lock.lock();
         try {
@@ -76,12 +81,14 @@ public class GroupTransferService extends ServiceThread {
         }
     }
 
+    // 等待传输完成：检查Slave是否已收到消息
     private void doWaitTransfer() {
         if (!this.requestsRead.isEmpty()) {
             for (CommitLog.GroupCommitRequest req : this.requestsRead) {
                 boolean transferOK = false;
 
                 long deadLine = req.getDeadLine();
+                // 是否需要所有同步副本确认
                 final boolean allAckInSyncStateSet = req.getAckNums() == MixAll.ALL_ACK_IN_SYNC_STATE_SET;
 
                 for (int i = 0; !transferOK && deadLine - System.nanoTime() > 0; i++) {
@@ -89,13 +96,14 @@ public class GroupTransferService extends ServiceThread {
                         this.notifyTransferObject.waitForRunning(1);
                     }
 
+                    // 普通模式：检查Push2SlaveMaxOffset是否已达到
                     if (!allAckInSyncStateSet && req.getAckNums() <= 1) {
                         transferOK = haService.getPush2SlaveMaxOffset().get() >= req.getNextOffset();
                         continue;
                     }
 
+                    // Controller模式：等待所有同步副本确认
                     if (allAckInSyncStateSet && this.haService instanceof AutoSwitchHAService) {
-                        // In this mode, we must wait for all replicas that in SyncStateSet.
                         final AutoSwitchHAService autoSwitchHAService = (AutoSwitchHAService) this.haService;
                         final Set<Long> syncStateSet = autoSwitchHAService.getSyncStateSet();
                         if (syncStateSet.size() <= 1) {

@@ -47,53 +47,44 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.WriteBatch;
 
-public class RocksDBConsumeQueueOffsetTable {
+    // RocksDB ConsumeQueue偏移量表：存储Topic-QueueId的物理偏移量和队列偏移量
+    public class RocksDBConsumeQueueOffsetTable {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static final Logger ERROR_LOG = LoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
     private static final Logger ROCKSDB_LOG = LoggerFactory.getLogger(LoggerName.ROCKSDB_LOGGER_NAME);
 
+    // 最大值标识
     private static final byte[] MAX_BYTES = "max".getBytes(StandardCharsets.UTF_8);
+    // 最小值标识
     private static final byte[] MIN_BYTES = "min".getBytes(StandardCharsets.UTF_8);
 
     /**
-     * Rocksdb ConsumeQueue's Offset unit. Format:
+     * RocksDB ConsumeQueue偏移量单元格式：
      *
-     * <pre>
+     * Key格式：
      * ┌─────────────────────────┬───────────┬───────────────────────┬───────────┬───────────┬───────────┬─────────────┐
      * │ Topic Bytes Array Size  │  CTRL_1   │   Topic Bytes Array   │  CTRL_1   │  Max(Min) │  CTRL_1   │   QueueId   │
      * │        (4 Bytes)        │ (1 Bytes) │       (n Bytes)       │ (1 Bytes) │ (3 Bytes) │ (1 Bytes) │  (4 Bytes)  │
-     * ├─────────────────────────┴───────────┴───────────────────────┴───────────┴───────────┴───────────┴─────────────┤
-     * │                                                    Key Unit                                                   │
-     * │                                                                                                               │
-     * </pre>
+     * └─────────────────────────┴───────────┴───────────────────────┴───────────┴───────────┴───────────┴─────────────┘
      *
-     * <pre>
+     * Value格式：
      * ┌─────────────────────────────┬────────────────────────┐
      * │  CommitLog Physical Offset  │   ConsumeQueue Offset  │
      * │        (8 Bytes)            │    (8 Bytes)           │
-     * ├─────────────────────────────┴────────────────────────┤
-     * │                     Value Unit                       │
-     * │                                                      │
-     * </pre>
-     * ConsumeQueue's Offset unit. Size: CommitLog Physical Offset(8) + ConsumeQueue Offset(8) =  16 Bytes
+     * └─────────────────────────────┴────────────────────────┘
+     * 总大小：CommitLog Physical Offset(8) + ConsumeQueue Offset(8) = 16 Bytes
      */
+    // 物理偏移量在Value中的位置
     static final int OFFSET_PHY_OFFSET = 0;
+    // 队列偏移量在Value中的位置
     static final int OFFSET_CQ_OFFSET = 8;
-    /**
-     * ┌─────────────────────────┬───────────┬───────────┬───────────┬───────────┬─────────────┐
-     * │ Topic Bytes Array Size  │  CTRL_1   │  CTRL_1   │  Max(Min) │  CTRL_1   │   QueueId   │
-     * │        (4 Bytes)        │ (1 Bytes) │ (1 Bytes) │ (3 Bytes) │ (1 Bytes) │  (4 Bytes)  │
-     * ├─────────────────────────┴───────────┴───────────┴───────────┴───────────┴─────────────┤
-     */
+
+    // 不含Topic的Key长度
     public static final int OFFSET_KEY_LENGTH_WITHOUT_TOPIC_BYTES = 4 + 1 + 1 + 3 + 1 + 4;
+    // Value长度
     private static final int OFFSET_VALUE_LENGTH = 8 + 8;
 
-    /**
-     * ┌─────────────────────────┬───────────┬───────────┬───────────┬───────────┐
-     * │ Topic Bytes Array Size  │  CTRL_1   │  CTRL_1   │  Max(Min) │  CTRL_1   │
-     * │        (4 Bytes)        │ (1 Bytes) │ (1 Bytes) │ (3 Bytes) │ (1 Bytes) │
-     * ├─────────────────────────┴───────────┴───────────┴───────────┴───────────┤
-     */
+    // 不含Topic和QueueId的Key长度
     public static final int OFFSET_KEY_LENGTH_WITHOUT_TOPIC_QUEUE_ID_BYTES = 4 + 1 + 1 + 3 + 1;
 
     /**

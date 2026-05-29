@@ -34,23 +34,27 @@ public class FlushDiskWatcher extends ServiceThread {
         return FlushDiskWatcher.class.getSimpleName();
     }
 
+    // 刷盘观察者线程：监控同步刷盘请求的完成状态
     @Override
     public void run() {
         while (!isStopped()) {
             GroupCommitRequest request = null;
             try {
+                // 阻塞等待获取刷盘请求
                 request = commitRequests.take();
             } catch (InterruptedException e) {
                 log.warn("take flush disk commit request, but interrupted, this may caused by shutdown");
                 continue;
             }
+            // 等待刷盘完成或超时
             while (!request.future().isDone()) {
                 long now = System.nanoTime();
+                // 检查是否超时
                 if (now - request.getDeadLine() >= 0) {
                     request.wakeupCustomer(PutMessageStatus.FLUSH_DISK_TIMEOUT);
                     break;
                 }
-                // To avoid frequent thread switching, replace future.get with sleep here,
+                // 使用sleep避免频繁线程切换
                 long sleepTime = (request.getDeadLine() - now) / 1_000_000;
                 sleepTime = Math.min(10, sleepTime);
                 if (sleepTime == 0) {
@@ -68,6 +72,7 @@ public class FlushDiskWatcher extends ServiceThread {
         }
     }
 
+    // 添加刷盘请求到队列
     public void add(GroupCommitRequest request) {
         commitRequests.add(request);
     }

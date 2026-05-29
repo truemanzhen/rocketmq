@@ -38,45 +38,61 @@ import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
 import org.apache.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 
 /**
- * Consumer filter data manager.Just manage the consumers use expression filter.
+ * 消费者过滤器数据管理器：管理使用表达式过滤的消费者。
+ *
+ * <h3>核心功能</h3>
+ * <ul>
+ *   <li>管理消费者的过滤表达式</li>
+ *   <li>使用BloomFilter优化过滤性能</li>
+ *   <li>支持SQL92表达式过滤</li>
+ * </ul>
+ *
+ * @see ConsumerFilterData
+ * @see BloomFilter
  */
 public class ConsumerFilterManager extends ConfigManager {
 
     private static final Logger log = LoggerFactory.getLogger(LoggerName.FILTER_LOGGER_NAME);
 
+    // 24小时的毫秒数
     private static final long MS_24_HOUR = 24 * 3600 * 1000;
 
+    // 过滤数据表（key: Topic）
     private ConcurrentMap<String/*Topic*/, FilterDataMapByTopic>
         filterDataByTopic = new ConcurrentHashMap<>(256);
 
+    // Broker控制器
     private transient BrokerController brokerController;
+    // BloomFilter（用于快速判断消息是否匹配过滤条件）
     private transient BloomFilter bloomFilter;
 
     public ConsumerFilterManager() {
-        // just for test
+        // 测试用
         this.bloomFilter = BloomFilter.createByFn(20, 64);
     }
 
     public ConsumerFilterManager(BrokerController brokerController) {
         this.brokerController = brokerController;
+        // 创建BloomFilter
         this.bloomFilter = BloomFilter.createByFn(
             brokerController.getBrokerConfig().getMaxErrorRateOfBloomFilter(),
             brokerController.getBrokerConfig().getExpectConsumerNumUseFilter()
         );
-        // then set bit map length of store config.
+        // 设置ConsumeQueue扩展的BitMap长度
         brokerController.getMessageStoreConfig().setBitMapLengthConsumeQueueExt(
             this.bloomFilter.getM()
         );
     }
 
     /**
-     * Build consumer filter data.Be care, bloom filter data is not included.
+     * 构建消费者过滤数据（不包含BloomFilter数据）
      *
-     * @return maybe null
+     * @return 可能返回null
      */
     public static ConsumerFilterData build(final String topic, final String consumerGroup,
         final String expression, final String type,
         final long clientVersion) {
+        // Tag类型不需要过滤器
         if (ExpressionType.isTagType(type)) {
             return null;
         }
@@ -89,6 +105,7 @@ public class ConsumerFilterManager extends ConfigManager {
         consumerFilterData.setExpression(expression);
         consumerFilterData.setExpressionType(type);
         consumerFilterData.setClientVersion(clientVersion);
+        // 编译过滤表达式
         try {
             consumerFilterData.setCompiledExpression(
                 FilterFactory.INSTANCE.get(type).compile(expression)

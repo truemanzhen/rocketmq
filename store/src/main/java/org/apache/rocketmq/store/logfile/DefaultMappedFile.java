@@ -61,42 +61,59 @@ import org.apache.rocketmq.store.util.LibC;
 import sun.misc.Unsafe;
 
 
-public class DefaultMappedFile extends AbstractMappedFile {
+    // 默认MappedFile实现：基于内存映射文件的消息存储
+    public class DefaultMappedFile extends AbstractMappedFile {
+    // 操作系统页面大小（4KB）
     public static final int OS_PAGE_SIZE = 1024 * 4;
+    // Unsafe实例（用于直接内存操作）
     public static final Unsafe UNSAFE = getUnsafe();
     private static final Method IS_LOADED_METHOD;
+    // Unsafe页面大小
     public static final int UNSAFE_PAGE_SIZE = UNSAFE == null ? OS_PAGE_SIZE : UNSAFE.pageSize();
 
     protected static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // 总映射虚拟内存大小
     protected static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
 
+    // 总映射文件数
     protected static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
 
+    // 写入位置更新器
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> WROTE_POSITION_UPDATER;
+    // 提交位置更新器
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> COMMITTED_POSITION_UPDATER;
+    // 刷盘位置更新器
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> FLUSHED_POSITION_UPDATER;
 
+    // 当前写入位置
     protected volatile int wrotePosition;
+    // 当前提交位置
     protected volatile int committedPosition;
+    // 当前刷盘位置
     protected volatile int flushedPosition;
+    // 文件大小
     protected int fileSize;
+    // 文件通道
     protected FileChannel fileChannel;
 
-    /**
-     * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
-     */
+    // 写入缓冲区（堆外内存，用于零拷贝写入）
     protected ByteBuffer writeBuffer = null;
+    // 堆外内存池
     protected TransientStorePool transientStorePool = null;
-    /**
-     * Configuration flag to use RandomAccessFile instead of MappedByteBuffer for writing
-     */
+    // 是否使用RandomAccessFile代替MappedByteBuffer写入
     protected boolean writeWithoutMmap = false;
+    // 文件名
     protected String fileName;
+    // 文件起始偏移量
     protected long fileFromOffset;
+    // 文件对象
     protected File file;
+    // 内存映射缓冲区
     protected MappedByteBuffer mappedByteBuffer;
+    // 存储时间戳
     protected volatile long storeTimestamp = 0;
+    // 是否为队列中第一个创建的文件
     protected boolean firstCreateInQueue = false;
     private long lastFlushTime = -1L;
 

@@ -32,71 +32,99 @@ import org.apache.rocketmq.remoting.protocol.NamespaceUtil;
 import org.apache.rocketmq.remoting.protocol.RequestType;
 
 /**
- * Client Common configuration
+ * 客户端公共配置：Producer和Consumer共享的配置项。
+ *
+ * <h3>核心配置</h3>
+ * <ul>
+ *   <li>namesrvAddr：NameServer地址</li>
+ *   <li>instanceName：客户端实例名称</li>
+ *   <li>pollNameServerInterval：从NameServer拉取路由信息的间隔</li>
+ *   <li>heartbeatBrokerInterval：向Broker发送心跳的间隔</li>
+ *   <li>persistConsumerOffsetInterval：持久化消费偏移量的间隔</li>
+ * </ul>
+ *
+ * @see org.apache.rocketmq.client.producer.DefaultMQProducer
+ * @see org.apache.rocketmq.client.consumer.DefaultMQPushConsumer
  */
 public class ClientConfig {
+    // VIP通道属性
     public static final String SEND_MESSAGE_WITH_VIP_CHANNEL_PROPERTY = "com.rocketmq.sendMessageWithVIPChannel";
+    // SOCKS代理配置
     public static final String SOCKS_PROXY_CONFIG = "com.rocketmq.socks.proxy.config";
+    // 是否读取消息体
     public static final String DECODE_READ_BODY = "com.rocketmq.read.body";
+    // 是否解压消息体
     public static final String DECODE_DECOMPRESS_BODY = "com.rocketmq.decompress.body";
+    // 是否启用发送延迟容忍
     public static final String SEND_LATENCY_ENABLE = "com.rocketmq.sendLatencyEnable";
+    // 是否启用启动探测器
     public static final String START_DETECTOR_ENABLE = "com.rocketmq.startDetectorEnable";
+    // 是否使用V2版本心跳
     public static final String HEART_BEAT_V2 = "com.rocketmq.heartbeat.v2";
+    // NameServer地址
     private String namesrvAddr = NameServerAddressUtils.getNameServerAddresses();
+    // 客户端IP
     private String clientIP = NetworkUtil.getLocalAddress();
+    // 实例名称
     private String instanceName = System.getProperty("rocketmq.client.name", "DEFAULT");
+    // 回调线程数
     private int clientCallbackExecutorThreads = Runtime.getRuntime().availableProcessors();
+    // 命名空间（已废弃）
     @Deprecated
     protected String namespace;
+    // 命名空间是否已初始化
     private boolean namespaceInitialized = false;
+    // V2版本命名空间
     protected String namespaceV2;
+    // 访问通道
     protected AccessChannel accessChannel = AccessChannel.LOCAL;
 
-    /**
-     * Pulling topic information interval from the named server
-     */
+    // 从NameServer拉取路由信息的间隔（30秒）
     private int pollNameServerInterval = 1000 * 30;
-    /**
-     * Heartbeat interval in microseconds with message broker
-     */
+    // 向Broker发送心跳的间隔（30秒）
     private int heartbeatBrokerInterval = 1000 * 30;
-    /**
-     * Offset persistent interval for consumer
-     */
+    // 持久化消费偏移量的间隔（5秒）
     private int persistConsumerOffsetInterval = 1000 * 5;
+    // 拉取异常时的延迟时间
     private long pullTimeDelayMillsWhenException = 1000;
 
+    // trace消息批量大小
     private int traceMsgBatchNum = 10;
+    // 是否为单元模式
     private boolean unitMode = false;
+    // 单元名称
     private String unitName;
+    // 是否读取消息体
     private boolean decodeReadBody = Boolean.parseBoolean(System.getProperty(DECODE_READ_BODY, "true"));
+    // 是否解压消息体
     private boolean decodeDecompressBody = Boolean.parseBoolean(System.getProperty(DECODE_DECOMPRESS_BODY, "true"));
+    // 是否启用VIP通道
     private boolean vipChannelEnabled = Boolean.parseBoolean(System.getProperty(SEND_MESSAGE_WITH_VIP_CHANNEL_PROPERTY, "false"));
+    // 是否使用V2版本心跳
     private boolean useHeartbeatV2 = Boolean.parseBoolean(System.getProperty(HEART_BEAT_V2, "false"));
 
+    // 是否使用TLS
     private boolean useTLS = TlsSystemConfig.tlsEnable;
 
+    // SOCKS代理配置
     private String socksProxyConfig = System.getProperty(SOCKS_PROXY_CONFIG, "{}");
 
+    // MQClient API超时时间（3秒）
     private int mqClientApiTimeout = 3 * 1000;
+    // 探测超时时间
     private int detectTimeout = 200;
+    // 探测间隔
     private int detectInterval = 2 * 1000;
 
+    // 语言
     private LanguageCode language = LanguageCode.JAVA;
 
-    /**
-     * Enable stream request type will inject a RPCHook to add corresponding request type to remoting layer.
-     * And it will also generate a different client id to prevent unexpected reuses of MQClientInstance.
-     */
+    // 是否启用流式请求类型
     protected boolean enableStreamRequestType = false;
 
-    /**
-     * Enable the fault tolerance mechanism of the client sending process.
-     * DO NOT OPEN when ORDER messages are required.
-     * Turning on will interfere with the queue selection functionality,
-     * possibly conflicting with the order message.
-     */
+    // 是否启用发送延迟容忍（注意：顺序消息不要开启）
     private boolean sendLatencyEnable = Boolean.parseBoolean(System.getProperty(SEND_LATENCY_ENABLE, "false"));
+    // 是否启用启动探测器
     private boolean startDetectorEnable = Boolean.parseBoolean(System.getProperty(START_DETECTOR_ENABLE, "false"));
 
     private boolean enableHeartbeatChannelEventListener = true;

@@ -122,34 +122,79 @@ import org.apache.rocketmq.store.util.PerfCounter;
 import org.apache.rocketmq.store.metrics.StoreMetricsManager;
 import org.rocksdb.RocksDBException;
 
+/**
+ * DefaultMessageStore是RocketMQ消息存储的默认实现，是Broker的核心组件。
+ *
+ * <h3>核心组件</h3>
+ * <ul>
+ *   <li>CommitLog：顺序写入所有消息</li>
+ *   <li>ConsumeQueue：消息消费索引</li>
+ *   <li>IndexFile：消息查询索引</li>
+ *   <li>HAService：高可用服务</li>
+ *   <li>ReputMessageService：消息分发服务</li>
+ * </ul>
+ *
+ * <h3>消息写入流程</h3>
+ * <pre>
+ * Producer → Broker → DefaultMessageStore.putMessage()
+ *                          ↓
+ *                    CommitLog.appendMessage()
+ *                          ↓
+ *                    MappedFile.appendMessage()
+ *                          ↓
+ *                    FlushManager.flush()
+ * </pre>
+ *
+ * <h3>消息读取流程</h3>
+ * <pre>
+ * Consumer → Broker → DefaultMessageStore.getMessage()
+ *                          ↓
+ *                    ConsumeQueue.getOffset()
+ *                          ↓
+ *                    CommitLog.getData()
+ * </pre>
+ *
+ * @see CommitLog
+ * @see ConsumeQueue
+ * @see IndexService
+ */
 public class DefaultMessageStore implements MessageStore {
     protected static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     protected static final Logger ERROR_LOG = LoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
+    // 性能计数器
     public final PerfCounter.Ticks perfs = new PerfCounter.Ticks(LOGGER);
 
+    // 消息存储配置
     private final MessageStoreConfig messageStoreConfig;
-    // CommitLog
+    // CommitLog：顺序写入所有消息
     protected final CommitLog commitLog;
 
+    // ConsumeQueue存储：消息消费索引
     protected final ConsumeQueueStoreInterface consumeQueueStore;
 
+    // CommitLog清理服务
     protected final CleanCommitLogService cleanCommitLogService;
 
+    // 索引服务：支持按Key查询消息
     protected final IndexService indexService;
+    // RocksDB索引存储
     protected final IndexRocksDBStore indexRocksDBStore;
 
+    // MappedFile预分配服务
     private final AllocateMappedFileService allocateMappedFileService;
 
+    // 消息分发服务：将CommitLog中的消息分发到ConsumeQueue
     private ReputMessageService reputMessageService;
 
+    // 高可用服务
     private HAService haService;
 
-    // CompactionLog
+    // 压缩存储
     private CompactionStore compactionStore;
-
     private CompactionService compactionService;
 
+    // 存储统计服务
     private final StoreStatsService storeStatsService;
 
     private final TransientStorePool transientStorePool;
@@ -227,6 +272,7 @@ public class DefaultMessageStore implements MessageStore {
     private final ScheduledExecutorService scheduledCleanQueueExecutorService =
         ThreadUtils.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreCleanQueueScheduledThread"));
 
+    // DefaultMessageStore构造函数：初始化消息存储引擎的所有组件
     public DefaultMessageStore(final MessageStoreConfig messageStoreConfig, final BrokerStatsManager brokerStatsManager,
         final MessageArrivingListener messageArrivingListener, final BrokerConfig brokerConfig,
         final ConcurrentMap<String, TopicConfig> topicConfigTable) throws IOException {
@@ -237,27 +283,36 @@ public class DefaultMessageStore implements MessageStore {
         this.aliveReplicasNum = messageStoreConfig.getTotalReplicas();
         this.brokerStatsManager = brokerStatsManager;
         this.topicConfigTable = topicConfigTable;
+        // MappedFile预分配服务，异步创建MappedFile避免写入时阻塞
         this.allocateMappedFileService = new AllocateMappedFileService(this);
 
+        // 根据配置创建CommitLog（普通模式或DLedger模式）
         this.commitLog = messageStoreConfig.isEnableDLegerCommitLog() ?
             new DLedgerCommitLog(this) : new CommitLog(this);
+        // 创建ConsumeQueue存储（支持RocksDB双写模式）
         this.consumeQueueStore = createConsumeQueueStore();
         this.cleanCommitLogService = new CleanCommitLogService();
         this.storeStatsService = new StoreStatsService(getBrokerIdentity());
         this.messageRocksDBStorage = new MessageRocksDBStorage(getMessageStoreConfig());
+        // 索引服务：支持按Key查询消息
         this.indexService = new IndexService(this);
         this.indexRocksDBStore = new IndexRocksDBStore(this);
+        // 注册消息分发器：构建ConsumeQueue、IndexFile、事务索引
         this.dispatcherList.addLast(new CommitLogDispatcherBuildConsumeQueue());
         this.dispatcherList.addLast(new CommitLogDispatcherBuildIndex());
         this.dispatcherList.addLast(new CommitLogDispatcherBuildTransIndex());
 
+        // 初始化HA（高可用）服务
         initializeHAService();
 
+        // ReputMessageService：将CommitLog中的消息分发到ConsumeQueue和IndexFile
         this.reputMessageService = messageStoreConfig.isEnableBuildConsumeQueueConcurrently() ?
             new ConcurrentReputMessageService() : new ReputMessageService();
 
+        // 堆外内存池，用于写入时的零拷贝优化
         this.transientStorePool = new TransientStorePool(messageStoreConfig.getTransientStorePoolSize(), messageStoreConfig.getMappedFileSizeCommitLog());
 
+        // 不使用mmap时，初始化共享ByteBuffer管理器
         if (messageStoreConfig.isWriteWithoutMmap()) {
             SharedByteBufferManager.getInstance().init(messageStoreConfig.getMaxMessageSize(), messageStoreConfig.getSharedByteBufferNum());
         }
@@ -267,18 +322,21 @@ public class DefaultMessageStore implements MessageStore {
         this.scheduledExecutorService =
             ThreadUtils.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreScheduledThread", getBrokerIdentity()));
 
+        // 如果启用消息压缩存储，创建CompactionStore
         if (messageStoreConfig.isEnableCompaction()) {
             this.compactionStore = new CompactionStore(this);
             this.compactionService = new CompactionService(commitLog, this, compactionStore);
             this.dispatcherList.addLast(new CommitLogDispatcherCompaction(compactionService));
         }
 
+        // 创建锁文件，防止同一Broker目录被多次启动
         File file = new File(StorePathConfigHelper.getLockFile(messageStoreConfig.getStorePathRootDir()));
         UtilAll.ensureDirOK(file.getParent());
         UtilAll.ensureDirOK(getStorePathPhysic());
         UtilAll.ensureDirOK(getStorePathLogic());
         lockFile = new RandomAccessFile(file, "rw");
 
+        // 解析延迟消息的延迟级别配置
         parseDelayLevel();
     }
 
@@ -324,43 +382,48 @@ public class DefaultMessageStore implements MessageStore {
      * @throws IOException
      */
     @Override
+    // 加载消息存储数据：CommitLog、ConsumeQueue、IndexFile，并执行数据恢复
     public boolean load() {
         boolean result = true;
         stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.LOAD_BEGIN);
         try {
+            // 检查上次是否正常关闭（通过临时文件判断）
             boolean lastExitOK = !this.isTempFileExist();
             LOGGER.info("last shutdown {}, store path root dir: {}",
                 lastExitOK ? "normally" : "abnormally", messageStoreConfig.getStorePathRootDir());
 
-            // load Commit Log
+            // 加载CommitLog文件
             result = this.commitLog.load();
             stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.LOAD_COMMITLOG_OK, result);
-            // load Consume Queue
+            // 加载ConsumeQueue文件
             result = result && this.consumeQueueStore.load();
             stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.LOAD_CONSUME_QUEUE_OK, result);
-            // Register consume queue store for commitlog dispatch
-            // AbstractConsumeQueueStore implements CommitLogDispatchStore, so we can register it directly
+            // 注册ConsumeQueue存储为CommitLog分发目标
             if (this.consumeQueueStore != null) {
                 registerCommitLogDispatchStore(this.consumeQueueStore);
             }
 
+            // 如果启用消息压缩，加载CompactionService
             if (messageStoreConfig.isEnableCompaction()) {
                 result = result && this.compactionService.load(lastExitOK);
                 stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.LOAD_COMPACTION_OK, result);
             }
 
             if (result) {
+                // 加载检查点文件（记录物理消息时间戳和逻辑消息时间戳）
                 loadCheckPoint();
+                // 加载IndexFile
                 result = this.indexService.load(lastExitOK);
                 registerCommitLogDispatchStore(this.indexService);
                 stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.LOAD_INDEX_OK, result);
-                // Register IndexRocksDBStore and TransMessageRocksDBStore for commit-log dispatch
+                // 注册RocksDB索引存储为分发目标
                 if (messageStoreConfig.isIndexRocksDBEnable()) {
                     registerCommitLogDispatchStore(this.indexRocksDBStore);
                 }
                 if (messageStoreConfig.isTransRocksDBEnable() && transMessageRocksDBStore != null) {
                     registerCommitLogDispatchStore(this.transMessageRocksDBStore);
                 }
+                // 数据恢复：根据上次关闭状态选择正常恢复或异常恢复
                 this.recover(lastExitOK);
                 LOGGER.info("message store recover end, and the max phy offset = {}", this.getMaxPhyOffset());
             }
@@ -388,14 +451,14 @@ public class DefaultMessageStore implements MessageStore {
         setConfirmOffset(this.storeCheckpoint.getConfirmPhyOffset());
     }
 
+    // 数据恢复：恢复ConsumeQueue和CommitLog的一致性
     private void recover(final boolean lastExitOK) throws RocksDBException {
         this.stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.RECOVER_BEGIN);
-        // recover consume queue
+        // 恢复ConsumeQueue
         this.consumeQueueStore.recover(this.brokerConfig.isRecoverConcurrently());
         this.stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.RECOVER_CONSUME_QUEUE_OK);
 
-        // recover commitlog
-        // Calculate the minimum dispatch offset from all registered stores
+        // 恢复CommitLog：计算所有分发存储的最小偏移量
         Long dispatchFromPhyOffset = this.consumeQueueStore.getDispatchFromPhyOffset(lastExitOK);
 
         for (CommitLogDispatchStore store : commitLogDispatchStores) {
@@ -405,6 +468,7 @@ public class DefaultMessageStore implements MessageStore {
             }
         }
 
+        // 根据上次关闭状态选择恢复方式
         if (lastExitOK) {
             this.commitLog.recoverNormally(dispatchFromPhyOffset);
         } else {
@@ -412,27 +476,30 @@ public class DefaultMessageStore implements MessageStore {
         }
         this.stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.RECOVER_COMMITLOG_OK);
 
-        // recover consume offset table
+        // 恢复TopicQueue偏移量表
         this.recoverTopicQueueTable();
         this.stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.RECOVER_TOPIC_QUEUE_TABLE_OK);
     }
 
-    /**
-     * @throws Exception
-     */
+    // 启动消息存储引擎的所有服务组件
     @Override
     public void start() throws Exception {
+        // 初始化HA（高可用）服务
         if (!messageStoreConfig.isEnableDLegerCommitLog() && !this.messageStoreConfig.isDuplicationEnable()) {
             this.haService.init(this);
         }
 
+        // 初始化堆外内存池
         if (this.isTransientStorePoolEnable()) {
             this.transientStorePool.init();
         }
+        // 启动MappedFile预分配服务
         this.allocateMappedFileService.start();
 
+        // 启动索引服务
         this.indexService.start();
 
+        // 获取文件锁，防止同一Broker目录被多次启动
         lock = lockFile.getChannel().tryLock(0, 1, false);
         if (lock == null || lock.isShared() || !lock.isValid()) {
             throw new RuntimeException("Lock failed, MQ already started, lock status: " + lock);
@@ -441,26 +508,31 @@ public class DefaultMessageStore implements MessageStore {
         lockFile.getChannel().write(ByteBuffer.wrap("lock".getBytes(StandardCharsets.UTF_8)));
         lockFile.getChannel().force(true);
 
+        // 启动ReputMessageService，从confirmOffset开始分发消息到ConsumeQueue
         this.reputMessageService.setReputFromOffset(this.commitLog.getConfirmOffset());
         this.reputMessageService.start();
 
-        // Checking is not necessary, as long as the dLedger's implementation exactly follows the definition of Recover,
-        // which is eliminating the dispatch inconsistency between the commitLog and consumeQueue at the end of recovery.
+        // 重新检查ReputOffset，确保ConsumeQueue与CommitLog一致
         this.doRecheckReputOffsetFromCq();
 
+        // 启动CommitLog刷盘、ConsumeQueue、统计服务
         this.commitLog.start();
         this.consumeQueueStore.start();
         this.storeStatsService.start();
 
+        // 启动HA服务
         if (this.haService != null) {
             this.haService.start();
         }
 
+        // 创建临时文件标记运行状态
         this.createTempFile();
+        // 添加定时任务（清理、统计等）
         this.addScheduleTask();
         this.perfs.start();
         this.shutdown = false;
 
+        // 状态机切换到RUNNING状态
         this.stateMachine.transitTo(MessageStoreStateMachine.MessageStoreState.RUNNING);
     }
 
@@ -863,25 +935,28 @@ public class DefaultMessageStore implements MessageStore {
         return CompletableFuture.completedFuture(getMessage(group, topic, queueId, offset, maxMsgNums, messageFilter));
     }
 
+    // 从ConsumeQueue中查找消息，返回消息数据
     @Override
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
         final int maxMsgNums, final int maxTotalMsgSize, final MessageFilter messageFilter) {
+        // 检查存储是否已关闭
         if (this.shutdown) {
             LOGGER.warn("message store has shutdown, so getMessage is forbidden");
             return null;
         }
 
+        // 检查存储是否可读
         if (!this.runningFlags.isReadable()) {
             LOGGER.warn("message store is not readable, so getMessage is forbidden " + this.runningFlags.getFlagBits());
             return null;
         }
 
+        // 如果是压缩Topic，从CompactionStore获取消息
         Optional<TopicConfig> topicConfig = getTopicConfig(topic);
         CleanupPolicy policy = CleanupPolicyUtils.getDeletePolicy(topicConfig);
-        //check request topic flag
         if (Objects.equals(policy, CleanupPolicy.COMPACTION) && messageStoreConfig.isEnableCompaction()) {
             return compactionStore.getMessage(group, topic, queueId, offset, maxMsgNums, maxTotalMsgSize);
-        } // else skip
+        }
 
         long beginTime = this.getSystemClock().now();
 
@@ -893,13 +968,16 @@ public class DefaultMessageStore implements MessageStore {
         GetMessageResult getResult = new GetMessageResult();
         int filterMessageCount = 0;
 
+        // 获取CommitLog最大物理偏移量
         final long maxOffsetPy = this.commitLog.getMaxOffset();
 
+        // 查找ConsumeQueue
         ConsumeQueueInterface consumeQueue = findConsumeQueue(topic, queueId);
         if (consumeQueue != null) {
             minOffset = consumeQueue.getMinOffsetInQueue();
             maxOffset = consumeQueue.getMaxOffsetInQueue();
 
+            // 判断偏移量状态：队列为空、偏移量过小、偏移量溢出等
             if (maxOffset == 0) {
                 status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
                 nextBeginOffset = nextOffsetCorrection(offset, 0);
@@ -2654,9 +2732,12 @@ public class DefaultMessageStore implements MessageStore {
         }
     }
 
+    // ReputMessageService：将CommitLog中的消息分发到ConsumeQueue和IndexFile
     class ReputMessageService extends ServiceThread {
 
+        // 当前分发的CommitLog偏移量
         protected volatile long reputFromOffset = 0;
+        // 当前分发的消息时间戳
         protected volatile long currentReputTimestamp = System.currentTimeMillis();
 
         public long getReputFromOffset() {
@@ -2710,7 +2791,9 @@ public class DefaultMessageStore implements MessageStore {
             return DefaultMessageStore.this.getMessageStoreConfig().isReadUnCommitted() ? DefaultMessageStore.this.commitLog.getMaxOffset() : DefaultMessageStore.this.commitLog.getConfirmOffset();
         }
 
+        // 执行消息分发：从CommitLog读取消息，分发到ConsumeQueue和IndexFile
         public void doReput() {
+            // 如果reputFromOffset小于CommitLog最小偏移量，说明分发落后太多，CommitLog已过期
             if (this.reputFromOffset < DefaultMessageStore.this.commitLog.getMinOffset()) {
                 LOGGER.warn("The reputFromOffset={} is smaller than minPyOffset={}, this usually indicate that the dispatch behind too much and the commitlog has expired.",
                     this.reputFromOffset, DefaultMessageStore.this.commitLog.getMinOffset());
@@ -2720,8 +2803,10 @@ public class DefaultMessageStore implements MessageStore {
             if (!isCommitLogAvailable) {
                 currentReputTimestamp = System.currentTimeMillis();
             }
+            // 循环读取CommitLog中的消息并分发
             for (boolean doNext = true; isCommitLogAvailable() && doNext; ) {
 
+                // 从CommitLog获取当前偏移量的数据
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
 
                 if (result == null) {
@@ -2731,11 +2816,14 @@ public class DefaultMessageStore implements MessageStore {
                 try {
                     this.reputFromOffset = result.getStartOffset();
 
+                    // 逐条解析消息并分发
                     for (int readSize = 0; readSize < result.getSize() && reputFromOffset < getReputEndOffset() && doNext; ) {
+                        // 校验消息格式并获取消息大小
                         DispatchRequest dispatchRequest =
                             DefaultMessageStore.this.commitLog.checkMessageAndReturnSize(result.getByteBuffer(), false, false, false);
                         int size = dispatchRequest.getBufferSize() == -1 ? dispatchRequest.getMsgSize() : dispatchRequest.getBufferSize();
 
+                        // 超过分发范围，停止分发
                         if (reputFromOffset + size > getReputEndOffset()) {
                             doNext = false;
                             break;
@@ -2744,8 +2832,10 @@ public class DefaultMessageStore implements MessageStore {
                         if (dispatchRequest.isSuccess()) {
                             if (size > 0) {
                                 currentReputTimestamp = dispatchRequest.getStoreTimestamp();
+                                // 执行消息分发：构建ConsumeQueue和IndexFile
                                 DefaultMessageStore.this.doDispatch(dispatchRequest);
 
+                                // 通知长轮询消费者有新消息到达
                                 if (!notifyMessageArriveInBatch) {
                                     notifyMessageArriveIfNecessary(dispatchRequest);
                                 }

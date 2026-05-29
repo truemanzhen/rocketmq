@@ -37,28 +37,56 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 import org.apache.rocketmq.store.logfile.DefaultMappedFile;
 import org.apache.rocketmq.store.logfile.MappedFile;
 
+/**
+ * MappedFileQueue管理一组顺序存储的MappedFile文件，用于CommitLog和ConsumeQueue。
+ *
+ * <h3>核心职责</h3>
+ * <ul>
+ *   <li>文件管理：创建、加载、删除MappedFile文件</li>
+ *   <li>数据定位：根据偏移量查找对应的MappedFile</li>
+ *   <li>刷盘管理：跟踪刷盘位置和提交位置</li>
+ *   <li>文件清理：删除过期的MappedFile文件</li>
+ * </ul>
+ *
+ * <h3>文件结构</h3>
+ * <pre>
+ * store/commitlog/
+ *   ├── 00000000000000000000  (第一个文件，起始偏移量0)
+ *   ├── 00000000001073741824  (第二个文件，起始偏移量1GB)
+ *   └── ...
+ * </pre>
+ *
+ * @see MappedFile
+ * @see CommitLog
+ */
 public class MappedFileQueue implements Swappable {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static final Logger LOG_ERROR = LoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
+    // 存储路径
     protected final String storePath;
 
+    // 每个MappedFile的大小
     protected final int mappedFileSize;
 
+    // MappedFile列表（线程安全）
     protected final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<>();
 
+    // MappedFile预分配服务
     protected final AllocateMappedFileService allocateMappedFileService;
 
+    // 已刷盘位置
     protected long flushedWhere = 0;
+    // 已提交位置
     protected long committedWhere = 0;
 
+    // 存储时间戳
     protected volatile long storeTimestamp = 0;
 
+    // 运行标志
     protected RunningFlags runningFlags;
 
-    /**
-     * Configuration flag to use RandomAccessFile instead of MappedByteBuffer for writing
-     */
+    // 是否使用RandomAccessFile代替MappedByteBuffer写入
     protected boolean writeWithoutMmap = false;
 
     public MappedFileQueue(final String storePath, int mappedFileSize,
@@ -258,6 +286,7 @@ public class MappedFileQueue implements Swappable {
     }
 
 
+    // 加载目录下的所有MappedFile文件
     public boolean load() {
         File dir = new File(this.storePath);
         File[] ls = dir.listFiles();
@@ -267,8 +296,9 @@ public class MappedFileQueue implements Swappable {
         return true;
     }
 
+    // 按文件名排序加载MappedFile，校验文件大小并初始化写入位置
     public boolean doLoad(List<File> files) {
-        // ascending order
+        // 按文件名升序排序（文件名即为起始偏移量）
         files.sort(Comparator.comparing(File::getName));
 
         for (int i = 0; i < files.size(); i++) {
@@ -277,12 +307,14 @@ public class MappedFileQueue implements Swappable {
                 continue;
             }
 
+            // 最后一个文件如果大小为0，自动删除（可能是异常关闭导致的空文件）
             if (file.length() == 0 && i == files.size() - 1) {
                 boolean ok = file.delete();
                 log.warn("{} size is 0, auto delete. is_ok: {}", file, ok);
                 continue;
             }
 
+            // 校验文件大小是否与配置一致
             if (file.length() != this.mappedFileSize) {
                 log.warn(file + "\t" + file.length()
                         + " length not matched message store config value, please check it manually");
@@ -290,6 +322,7 @@ public class MappedFileQueue implements Swappable {
             }
 
             try {
+                // 创建MappedFile对象并设置写入/刷盘/提交位置为文件末尾
                 MappedFile mappedFile = new DefaultMappedFile(file.getPath(), mappedFileSize, runningFlags, writeWithoutMmap);
 
                 mappedFile.setWrotePosition(this.mappedFileSize);
@@ -320,10 +353,12 @@ public class MappedFileQueue implements Swappable {
         return 0;
     }
 
+    // 获取最后一个MappedFile，如果不存在则创建新文件
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
 
+        // 如果没有文件，计算新文件的起始偏移量（对齐到mappedFileSize）
         if (mappedFileLast == null) {
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
@@ -655,11 +690,14 @@ public class MappedFileQueue implements Swappable {
         return deleteCount;
     }
 
+    // 刷盘：将内存中的数据写入磁盘
     public boolean flush(final int flushLeastPages) {
         boolean result = true;
+        // 找到上次刷盘位置对应的MappedFile
         MappedFile mappedFile = this.findMappedFileByOffset(this.getFlushedWhere(), this.getFlushedWhere() == 0);
         if (mappedFile != null) {
             long tmpTimeStamp = mappedFile.getStoreTimestamp();
+            // 执行刷盘，返回刷盘到的位置
             int offset = mappedFile.flush(flushLeastPages);
             long where = mappedFile.getFileFromOffset() + offset;
             result = where == this.getFlushedWhere();
@@ -672,6 +710,7 @@ public class MappedFileQueue implements Swappable {
         return result;
     }
 
+    // 提交：将堆外内存数据提交到FileChannel（零拷贝模式）
     public synchronized boolean commit(final int commitLeastPages) {
         boolean result = true;
         MappedFile mappedFile = this.findMappedFileByOffset(this.getCommittedWhere(), this.getCommittedWhere() == 0);

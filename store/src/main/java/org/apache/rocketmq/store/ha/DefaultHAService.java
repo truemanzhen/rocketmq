@@ -40,35 +40,47 @@ import org.apache.rocketmq.store.DefaultMessageStore;
 import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.config.MessageStoreConfig;
 
-public class DefaultHAService implements HAService {
+    // 默认HA服务实现：基于NIO的主从复制
+    public class DefaultHAService implements HAService {
 
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // 当前连接数
     protected final AtomicInteger connectionCount = new AtomicInteger(0);
 
+    // HA连接列表
     protected final List<HAConnection> connectionList = new LinkedList<>();
 
+    // 接受Socket连接的服务
     protected AcceptSocketService acceptSocketService;
 
     protected DefaultMessageStore defaultMessageStore;
 
+    // 等待通知对象（用于同步刷盘）
     protected WaitNotifyObject waitNotifyObject = new WaitNotifyObject();
+    // 推送到Slave的最大偏移量
     protected AtomicLong push2SlaveMaxOffset = new AtomicLong(0);
 
+    // 组传输服务（同步复制时使用）
     protected GroupTransferService groupTransferService;
 
+    // HA客户端（Slave端使用，连接Master拉取数据）
     protected HAClient haClient;
 
+    // HA连接状态通知服务
     protected HAConnectionStateNotificationService haConnectionStateNotificationService;
 
     public DefaultHAService() {
     }
 
     @Override
+    // 初始化HA服务
     public void init(final DefaultMessageStore defaultMessageStore) throws IOException {
         this.defaultMessageStore = defaultMessageStore;
         this.acceptSocketService = new DefaultAcceptSocketService(defaultMessageStore.getMessageStoreConfig());
+        // 同步复制传输服务
         this.groupTransferService = new GroupTransferService(this, defaultMessageStore);
+        // Slave端创建HA客户端，连接Master拉取数据
         if (this.defaultMessageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
             this.haClient = new DefaultHAClient(this.defaultMessageStore);
         }
@@ -76,6 +88,7 @@ public class DefaultHAService implements HAService {
     }
 
     @Override
+    // 更新Master地址
     public void updateMasterAddress(final String newAddr) {
         if (this.haClient != null) {
             this.haClient.updateMasterAddress(newAddr);
@@ -83,6 +96,7 @@ public class DefaultHAService implements HAService {
     }
 
     @Override
+    // 更新HA Master地址
     public void updateHaMasterAddress(String newAddr) {
         if (this.haClient != null) {
             this.haClient.updateHaMasterAddress(newAddr);
@@ -90,11 +104,13 @@ public class DefaultHAService implements HAService {
     }
 
     @Override
+    // 提交同步复制请求
     public void putRequest(final CommitLog.GroupCommitRequest request) {
         this.groupTransferService.putRequest(request);
     }
 
     @Override
+    // 检查Slave是否正常
     public boolean isSlaveOK(final long masterPutWhere) {
         boolean result = this.connectionCount.get() > 0;
         result =

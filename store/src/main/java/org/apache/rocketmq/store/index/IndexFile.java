@@ -26,33 +26,70 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 import org.apache.rocketmq.store.logfile.DefaultMappedFile;
 import org.apache.rocketmq.store.logfile.MappedFile;
 
-public class IndexFile {
+/**
+ * IndexFile是RocketMQ的消息索引文件，支持按Key、UniqKey、Tag查询消息。
+ *
+ * <h3>核心职责</h3>
+ * <ul>
+ *   <li>Key索引：支持按用户自定义Key查询消息</li>
+ *   <li>UniqKey索引：支持按消息唯一ID查询消息</li>
+ *   <li>Tag索引：支持按Tag查询消息</li>
+ * </ul>
+ *
+ * <h3>索引结构</h3>
+ * <pre>
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │                     IndexFile                                │
+ * │  ┌─────────────┐                                            │
+ * │  │ IndexHeader │ (40 bytes)                                  │
+ * │  ├─────────────┤                                            │
+ * │  │ Hash Slot 0 │ (4 bytes) → points to first index entry    │
+ * │  │ Hash Slot 1 │ (4 bytes)                                  │
+ * │  │ ...         │                                            │
+ * │  ├─────────────┤                                            │
+ * │  │ Index 0     │ (20 bytes)                                  │
+ * │  │ Index 1     │ (20 bytes)                                  │
+ * │  │ ...         │                                            │
+ * │  └─────────────┘                                            │
+ * </pre>
+ *
+ * <h3>索引条目格式</h3>
+ * <pre>
+ * ┌───────────────┬───────────────────────────────┬───────────────┬───────────────┐
+ * │ Key HashCode  │        Physical Offset        │   Time Diff   │ Next Index Pos│
+ * │   (4 Bytes)   │          (8 Bytes)            │   (4 Bytes)   │   (4 Bytes)   │
+ * └───────────────┴───────────────────────────────┴───────────────┴───────────────┘
+ * </pre>
+ *
+ * @see IndexService
+ * @see IndexHeader
+ */
+    // 索引文件：支持按Key、UniqKey、Tag查询消息
+    public class IndexFile {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
+    // 每个Hash槽的大小（4字节）
     private static int hashSlotSize = 4;
-    /**
-     * Each index's store unit. Format:
-     * <pre>
-     * ┌───────────────┬───────────────────────────────┬───────────────┬───────────────┐
-     * │ Key HashCode  │        Physical Offset        │   Time Diff   │ Next Index Pos│
-     * │   (4 Bytes)   │          (8 Bytes)            │   (4 Bytes)   │   (4 Bytes)   │
-     * ├───────────────┴───────────────────────────────┴───────────────┴───────────────┤
-     * │                                 Index Store Unit                              │
-     * │                                                                               │
-     * </pre>
-     * Each index's store unit. Size:
-     * Key HashCode(4) + Physical Offset(8) + Time Diff(4) + Next Index Pos(4) = 20 Bytes
-     */
+    // 索引条目大小（20字节）
     private static int indexSize = 20;
+    // 无效索引值
     private static int invalidIndex = 0;
+    // Hash槽总数
     private final int hashSlotNum;
+    // 索引条目总数
     private final int indexNum;
+    // 文件总大小
     private final int fileTotalSize;
+    // MappedFile文件
     private final MappedFile mappedFile;
+    // 内存映射缓冲区
     private final MappedByteBuffer mappedByteBuffer;
+    // 索引文件头
     private final IndexHeader indexHeader;
 
+    // 构造函数：创建或打开索引文件
     public IndexFile(final String fileName, final int hashSlotNum, final int indexNum,
         final long endPhyOffset, final long endTimestamp) throws IOException {
+        // 计算文件总大小：Header + Hash槽 + 索引条目
         this.fileTotalSize =
             IndexHeader.INDEX_HEADER_SIZE + (hashSlotNum * hashSlotSize) + (indexNum * indexSize);
         this.mappedFile = new DefaultMappedFile(fileName, fileTotalSize);
@@ -63,6 +100,7 @@ public class IndexFile {
         ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
         this.indexHeader = new IndexHeader(byteBuffer);
 
+        // 初始化文件头
         if (endPhyOffset > 0) {
             this.indexHeader.setBeginPhyOffset(endPhyOffset);
             this.indexHeader.setEndPhyOffset(endPhyOffset);

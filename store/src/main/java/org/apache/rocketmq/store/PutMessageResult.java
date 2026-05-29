@@ -16,9 +16,13 @@
  */
 package org.apache.rocketmq.store;
 
-public class PutMessageResult {
+    // 消息写入结果：包含写入状态和追加结果
+    public class PutMessageResult {
+    // 写入状态（成功、刷盘超时、从节点不可用等）
     private PutMessageStatus putMessageStatus;
+    // 追加消息结果（物理偏移量、队列偏移量、写入大小等）
     private AppendMessageResult appendMessageResult;
+    // 是否为远程写入（通过EscapeBridge转发到其他Broker）
     private boolean remotePut = false;
 
     public PutMessageResult(PutMessageStatus putMessageStatus, AppendMessageResult appendMessageResult) {
@@ -33,11 +37,14 @@ public class PutMessageResult {
         this.remotePut = remotePut;
     }
 
+    // 判断消息是否写入成功
     public boolean isOk() {
         if (remotePut) {
+            // 远程写入：刷盘超时和从节点不可用也算成功（消息已写入Master）
             return putMessageStatus == PutMessageStatus.PUT_OK || putMessageStatus == PutMessageStatus.FLUSH_DISK_TIMEOUT
                 || putMessageStatus == PutMessageStatus.FLUSH_SLAVE_TIMEOUT || putMessageStatus == PutMessageStatus.SLAVE_NOT_AVAILABLE;
         } else {
+            // 本地写入：检查追加结果
             return this.appendMessageResult != null && this.appendMessageResult.isOk();
         }
 

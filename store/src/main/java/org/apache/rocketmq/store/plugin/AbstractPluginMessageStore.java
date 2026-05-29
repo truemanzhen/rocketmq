@@ -65,8 +65,11 @@ import org.apache.rocketmq.store.util.PerfCounter;
 import org.apache.rocketmq.store.metrics.StoreMetricsManager;
 import org.rocksdb.RocksDBException;
 
-public abstract class AbstractPluginMessageStore implements MessageStore {
+    // 抽象插件消息存储：装饰器模式，支持在消息存储上添加插件功能
+    public abstract class AbstractPluginMessageStore implements MessageStore {
+    // 被装饰的消息存储
     protected MessageStore next;
+    // 插件上下文
     protected MessageStorePluginContext context;
 
     public AbstractPluginMessageStore(MessageStorePluginContext context, MessageStore next) {

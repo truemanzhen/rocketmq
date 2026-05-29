@@ -53,51 +53,44 @@ import org.apache.rocketmq.store.metrics.StoreMetricsManager;
 import org.rocksdb.RocksDBException;
 
 /**
- * This class defines contracting interfaces to implement, allowing third-party vendor to use customized message store.
+ * MessageStore是消息存储的核心接口，定义了消息存储的所有操作。
+ *
+ * <h3>核心功能</h3>
+ * <ul>
+ *   <li>消息写入：支持同步和异步写入</li>
+ *   <li>消息读取：支持按偏移量和时间查询</li>
+ *   <li>存储管理：加载、启动、关闭、销毁</li>
+ *   <li>高可用：支持主从复制</li>
+ * </ul>
+ *
+ * <h3>实现类</h3>
+ * <ul>
+ *   <li>DefaultMessageStore：默认实现</li>
+ *   <li>RocksDBMessageStore：RocksDB实现</li>
+ * </ul>
+ *
+ * @see DefaultMessageStore
  */
 public interface MessageStore {
 
-    /**
-     * Load previously stored messages.
-     *
-     * @return true if success; false otherwise.
-     */
+    // 加载之前存储的消息
     boolean load();
 
-    /**
-     * Launch this message store.
-     *
-     * @throws Exception if there is any error.
-     */
+    // 启动消息存储
     void start() throws Exception;
 
-    /**
-     * Shutdown this message store.
-     */
+    // 关闭消息存储
     void shutdown();
 
-    /**
-     * Destroy this message store. Generally, all persistent files should be removed after invocation.
-     */
+    // 销毁消息存储（删除所有持久化文件）
     void destroy();
 
-    /**
-     * Store a message into store in async manner, the processor can process the next request rather than wait for
-     * result when result is completed, notify the client in async manner
-     *
-     * @param msg MessageInstance to store
-     * @return a CompletableFuture for the result of store operation
-     */
+    // 异步写入单条消息
     default CompletableFuture<PutMessageResult> asyncPutMessage(final MessageExtBrokerInner msg) {
         return CompletableFuture.completedFuture(putMessage(msg));
     }
 
-    /**
-     * Store a batch of messages in async manner
-     *
-     * @param messageExtBatch the message batch
-     * @return a CompletableFuture for the result of store operation
-     */
+    // 异步写入批量消息
     default CompletableFuture<PutMessageResult> asyncPutMessages(final MessageExtBatch messageExtBatch) {
         return CompletableFuture.completedFuture(putMessages(messageExtBatch));
     }

@@ -21,19 +21,27 @@ import org.apache.rocketmq.store.ConsumeQueueExt;
 
 import java.nio.ByteBuffer;
 
-public class CqUnit {
+    // ConsumeQueue单元：表示消费队列中的一条索引记录
+    public class CqUnit {
+    // 队列偏移量
     private final long queueOffset;
+    // 消息大小
     private final int size;
+    // 消息在CommitLog中的物理偏移量
     private final long pos;
+    // 批量消息中的消息数量
     private final short batchNum;
     /**
-     * Be careful, the tagsCode is reused as an address for extent file. To prevent accident mistake, we follow the
-     * rules: 1. If the cqExtUnit is not null, make tagsCode == cqExtUnit.getTagsCode() 2. If the cqExtUnit is null, and
-     * the tagsCode is smaller than 0, it is an invalid tagsCode, which means failed to get cqExtUnit by address
+     * Tag的HashCode（复用为扩展文件地址）
+     * 规则：1. 如果cqExtUnit不为null，tagsCode == cqExtUnit.getTagsCode()
+     *      2. 如果cqExtUnit为null且tagsCode < 0，表示无效的tagsCode
      */
     private long tagsCode;
+    // 扩展单元（用于SQL92过滤）
     private ConsumeQueueExt.CqExtUnit cqExtUnit;
+    // 原始缓冲区
     private final ByteBuffer nativeBuffer;
+    // 压缩偏移量
     private final int compactedOffset;
 
     public CqUnit(long queueOffset, long pos, int size, long tagsCode) {

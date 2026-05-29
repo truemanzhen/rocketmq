@@ -56,31 +56,37 @@ import org.apache.rocketmq.store.config.MessageStoreConfig;
 import org.apache.rocketmq.store.logfile.MappedFile;
 import org.rocksdb.RocksDBException;
 
-/**
- * Store all metadata downtime for recovery, data protection reliability
- */
-public class DLedgerCommitLog extends CommitLog {
+    // DLedger CommitLog：基于Raft协议的分布式提交日志
+    public class DLedgerCommitLog extends CommitLog {
 
     static {
         System.setProperty("dLedger.multiPath.Splitter", MessageStoreConfig.MULTI_PATH_SPLITTER);
     }
 
+    // DLedger服务器
     private final DLedgerServer dLedgerServer;
+    // DLedger配置
     private final DLedgerConfig dLedgerConfig;
+    // DLedger Mmap文件存储
     private final DLedgerMmapFileStore dLedgerFileStore;
+    // DLedger文件列表
     private final MmapFileList dLedgerFileList;
 
-    //The id identifies the broker role, 0 means master, others means slave
+    // Broker角色ID（0表示Master，其他表示Slave）
     private final int id;
 
+    // 消息序列化器
     private final MessageSerializer messageSerializer;
+    // DLedger锁开始时间
     private volatile long beginTimeInDledgerLock = 0;
 
-    //This offset separate the old commitlog from dledger commitlog
+    // 分隔旧CommitLog和DLedger CommitLog的偏移量
     private long dividedCommitlogOffset = -1;
 
+    // 是否正在恢复旧CommitLog
     private boolean isInrecoveringOldCommitlog = false;
 
+    // 消息ID构建器
     private final StringBuilder msgIdBuilder = new StringBuilder();
 
     public DLedgerCommitLog(final DefaultMessageStore defaultMessageStore) {

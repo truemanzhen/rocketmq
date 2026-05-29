@@ -76,27 +76,38 @@ import org.apache.rocketmq.store.queue.ReferredIterator;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 import org.apache.rocketmq.store.util.PerfCounter;
 
-public class TimerMessageStore {
+    // 定时消息存储：基于时间轮实现的延迟消息
+    public class TimerMessageStore {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // 状态常量：初始化、运行中、暂停、关闭
     public static final int INITIAL = 0, RUNNING = 1, HAULT = 2, SHUTDOWN = 3;
     private volatile int state = INITIAL;
 
+    // 定时消息Topic（系统内部使用）
     public static final String TIMER_TOPIC = TopicValidator.SYSTEM_TOPIC_PREFIX + "wheel_timer";
+    // 消息属性：定时输出时间
     public static final String TIMER_OUT_MS = MessageConst.PROPERTY_TIMER_OUT_MS;
+    // 消息属性：定时入队时间
     public static final String TIMER_ENQUEUE_MS = MessageConst.PROPERTY_TIMER_ENQUEUE_MS;
+    // 消息属性：定时出队时间
     public static final String TIMER_DEQUEUE_MS = MessageConst.PROPERTY_TIMER_DEQUEUE_MS;
+    // 消息属性：时间轮滚动次数
     public static final String TIMER_ROLL_TIMES = MessageConst.PROPERTY_TIMER_ROLL_TIMES;
+    // 消息属性：定时删除唯一Key
     public static final String TIMER_DELETE_UNIQUE_KEY = MessageConst.PROPERTY_TIMER_DEL_UNIQKEY;
 
     public static final Random RANDOM = new Random();
+    // 写入结果：成功、需要重试、不需要重试
     public static final int PUT_OK = 0, PUT_NEED_RETRY = 1, PUT_NO_RETRY = 2;
+    // 一天的秒数
     public static final int DAY_SECS = 24 * 3600;
+    // 默认容量
     public static final int DEFAULT_CAPACITY = 1024;
 
-    // The total days in the timer wheel when precision is 1000ms.
-    // If the broker shutdown last more than the configured days, will cause message loss
+    // 时间轮TTL天数（精度1000ms时）
+    // 如果Broker关闭超过配置的天数，会导致消息丢失
     public static final int TIMER_WHEEL_TTL_DAY = 7;
     public static final int TIMER_BLANK_SLOTS = 60;
     public static final int MAGIC_DEFAULT = 1;

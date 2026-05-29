@@ -301,6 +301,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         return false;
     }
 
+    // 处理消息拉取请求：校验权限、查找消息、返回结果
     private RemotingCommand processRequest(final Channel channel, RemotingCommand request, boolean brokerAllowSuspend,
         boolean brokerAllowFlowCtrSuspend)
         throws RemotingCommandException {
@@ -314,6 +315,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
         LOGGER.debug("receive PullMessage request command, {}", request);
 
+        // 检查Broker是否有读权限
         if (!PermName.isReadable(this.brokerController.getBrokerConfig().getBrokerPermission())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.BROKER_FORBIDDEN);
@@ -322,6 +324,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 检查Lite Pull是否启用
         if (request.getCode() == RequestCode.LITE_PULL_MESSAGE && !this.brokerController.getBrokerConfig().isLitePullMessageEnable()) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.BROKER_FORBIDDEN);
@@ -330,6 +333,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 查找订阅组配置
         SubscriptionGroupConfig subscriptionGroupConfig =
             this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getConsumerGroup());
         if (null == subscriptionGroupConfig) {
@@ -338,6 +342,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 检查订阅组是否允许消费
         if (!subscriptionGroupConfig.isConsumeEnable()) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.GROUP_FORBIDDEN);
@@ -345,6 +350,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 查找Topic配置
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
             LOGGER.error("the topic {} not exist, consumer: {}", requestHeader.getTopic(), RemotingHelper.parseChannelRemoteAddr(channel));
@@ -353,6 +359,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 检查Topic是否有读权限
         if (!PermName.isReadable(topicConfig.getPerm())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.TOPIC_FORBIDDEN);

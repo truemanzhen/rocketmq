@@ -40,25 +40,31 @@ public class ZoneRouteRPCHook implements RPCHook {
     }
 
     @Override
+    // 在路由查询响应后，按Zone过滤路由信息，实现就近访问
     public void doAfterResponse(String remoteAddr, RemotingCommand request, RemotingCommand response) {
+        // 仅处理路由查询请求
         if (RequestCode.GET_ROUTEINFO_BY_TOPIC != request.getCode()) {
             return;
         }
         if (response == null || response.getBody() == null || ResponseCode.SUCCESS != response.getCode()) {
             return;
         }
+        // 解析是否启用Zone模式
         boolean zoneMode = Boolean.parseBoolean(request.getExtFields().get(MixAll.ZONE_MODE));
         if (!zoneMode) {
             return;
         }
+        // 获取客户端所在的Zone名称
         String zoneName = request.getExtFields().get(MixAll.ZONE_NAME);
         if (StringUtils.isBlank(zoneName)) {
             return;
         }
+        // 解码Topic路由数据，按Zone过滤后重新编码
         TopicRouteData topicRouteData = RemotingSerializable.decode(response.getBody(), TopicRouteData.class);
         response.setBody(filterByZoneName(topicRouteData, zoneName).encode());
     }
 
+    // 按Zone名称过滤路由，保留同Zone的Broker和Master宕机的Broker
     private TopicRouteData filterByZoneName(TopicRouteData topicRouteData, String zoneName) {
         List<BrokerData> brokerDataReserved = new ArrayList<>();
         Map<String, BrokerData> brokerDataRemoved = new HashMap<>();
@@ -66,7 +72,7 @@ public class ZoneRouteRPCHook implements RPCHook {
             if (brokerData.getBrokerAddrs() == null) {
                 continue;
             }
-            //master down, consume from slave. break nearby route rule.
+            // Master宕机时保留Slave（打破就近路由规则），否则只保留同Zone的Broker
             if (brokerData.getBrokerAddrs().get(MixAll.MASTER_ID) == null
                 || StringUtils.equalsIgnoreCase(brokerData.getZoneName(), zoneName)) {
                 brokerDataReserved.add(brokerData);
@@ -76,6 +82,7 @@ public class ZoneRouteRPCHook implements RPCHook {
         }
         topicRouteData.setBrokerDatas(brokerDataReserved);
 
+        // 移除被过滤Broker对应的QueueData
         List<QueueData> queueDataReserved = new ArrayList<>();
         for (QueueData queueData : topicRouteData.getQueueDatas()) {
             if (!brokerDataRemoved.containsKey(queueData.getBrokerName())) {
@@ -83,7 +90,7 @@ public class ZoneRouteRPCHook implements RPCHook {
             }
         }
         topicRouteData.setQueueDatas(queueDataReserved);
-        // remove filter server table by broker address
+        // 移除被过滤Broker的FilterServer表
         if (topicRouteData.getFilterServerTable() != null && !topicRouteData.getFilterServerTable().isEmpty()) {
             for (Entry<String, BrokerData> entry : brokerDataRemoved.entrySet()) {
                 BrokerData brokerData = entry.getValue();

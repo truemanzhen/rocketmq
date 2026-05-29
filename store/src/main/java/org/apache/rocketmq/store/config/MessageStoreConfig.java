@@ -24,63 +24,83 @@ import org.apache.rocketmq.store.queue.BatchConsumeQueue;
 import org.rocksdb.CompressionType;
 import org.rocksdb.util.SizeUnit;
 
-public class MessageStoreConfig {
+    // 消息存储配置类：包含所有消息存储相关的配置项
+    public class MessageStoreConfig {
 
+    // 多路径存储的路径分隔符
     public static final String MULTI_PATH_SPLITTER = System.getProperty("rocketmq.broker.multiPathSplitter", ",");
 
-    //The root directory in which the log data is kept
+    // 消息存储根目录
     @ImportantField
     private String storePathRootDir = System.getProperty("user.home") + File.separator + "store";
 
-    //The directory in which the commitlog is kept
+    // CommitLog存储目录
     @ImportantField
     private String storePathCommitLog = null;
 
+    // DLedger CommitLog存储目录
     @ImportantField
     private String storePathDLedgerCommitLog = null;
 
-    //The directory in which the epochFile is kept
+    // Epoch文件存储目录（用于HA主从切换）
     @ImportantField
     private String storePathEpochFile = null;
 
+    // Broker身份信息文件路径
     @ImportantField
     private String storePathBrokerIdentity = null;
 
+    // 只读CommitLog存储路径（冷数据）
     private String readOnlyCommitLogStorePaths = null;
 
-    // CommitLog file size,default is 1G
+    // CommitLog文件大小，默认1GB
     private int mappedFileSizeCommitLog = 1024 * 1024 * 1024;
 
-    // CompactionLog file size, default is 100M
+    // CompactionLog文件大小，默认100MB
     private int compactionMappedFileSize = 100 * 1024 * 1024;
 
-    // CompactionLog consumeQueue file size, default is 10M
+    // CompactionLog消费队列文件大小，默认10MB
     private int compactionCqMappedFileSize = 10 * 1024 * 1024;
 
+    // 压缩调度间隔（毫秒）
     private int compactionScheduleInternal = 15 * 60 * 1000;
 
+    // 最大偏移量Map大小
     private int maxOffsetMapSize = 100 * 1024 * 1024;
 
+    // 压缩线程数
     private int compactionThreadNum = 6;
 
+    // 是否启用消息压缩存储
     private boolean enableCompaction = true;
 
-    // TimerLog file size, default is 100M
+    // TimerLog文件大小，默认100MB
     private int mappedFileSizeTimerLog = 100 * 1024 * 1024;
 
+    // 定时消息精度（毫秒）
     private int timerPrecisionMs = 1000;
 
+    // 定时消息滚动窗口槽数
     private int timerRollWindowSlot = 3600 * 24 * 2;
+    // 定时消息刷盘间隔（毫秒）
     private int timerFlushIntervalMs = 1000;
+    // 定时消息获取线程数
     private int timerGetMessageThreadNum = 3;
+    // 定时消息写入线程数
     private int timerPutMessageThreadNum = 3;
 
+    // 是否启用Disruptor
     private boolean timerEnableDisruptor = false;
 
+    // 是否启用定时消息指标检查
     private boolean timerEnableCheckMetrics = true;
+    // 是否拦截延迟级别
     private boolean timerInterceptDelayLevel = false;
+    // 最大延迟时间（秒）
     private int timerMaxDelaySec = 3600 * 24 * 3;
+    // 是否启用定时消息快照刷盘
     private boolean timerWheelSnapshotFlush = false;
+    // 是否启用时间轮定时消息
     private boolean timerWheelEnable = true;
 
     /**

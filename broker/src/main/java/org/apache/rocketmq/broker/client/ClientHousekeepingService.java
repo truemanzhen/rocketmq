@@ -27,10 +27,12 @@ import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 import org.apache.rocketmq.remoting.ChannelEventListener;
 
-public class ClientHousekeepingService implements ChannelEventListener {
+    // 客户端连接管理服务：监听Channel事件，管理Producer和Consumer的连接
+    public class ClientHousekeepingService implements ChannelEventListener {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final BrokerController brokerController;
 
+    // 定时任务线程池
     private ScheduledExecutorService scheduledExecutorService;
 
     public ClientHousekeepingService(final BrokerController brokerController) {
@@ -39,6 +41,7 @@ public class ClientHousekeepingService implements ChannelEventListener {
             new ThreadFactoryImpl("ClientHousekeepingScheduledThread", brokerController.getBrokerIdentity()));
     }
 
+    // 启动定时扫描不活跃Channel
     public void start() {
 
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
@@ -50,6 +53,7 @@ public class ClientHousekeepingService implements ChannelEventListener {
         }, 1000 * 10, 1000 * 10, TimeUnit.MILLISECONDS);
     }
 
+    // 扫描不活跃的Channel
     private void scanExceptionChannel() {
         this.brokerController.getProducerManager().scanNotActiveChannel();
         this.brokerController.getConsumerManager().scanNotActiveChannel();
@@ -60,11 +64,13 @@ public class ClientHousekeepingService implements ChannelEventListener {
     }
 
     @Override
+    // Channel连接事件
     public void onChannelConnect(String remoteAddr, Channel channel) {
         this.brokerController.getBrokerStatsManager().incChannelConnectNum();
     }
 
     @Override
+    // Channel关闭事件：清理Producer和Consumer的连接
     public void onChannelClose(String remoteAddr, Channel channel) {
         this.brokerController.getProducerManager().doChannelCloseEvent(remoteAddr, channel);
         this.brokerController.getConsumerManager().doChannelCloseEvent(remoteAddr, channel);
@@ -72,6 +78,7 @@ public class ClientHousekeepingService implements ChannelEventListener {
     }
 
     @Override
+    // Channel异常事件：清理Producer和Consumer的连接
     public void onChannelException(String remoteAddr, Channel channel) {
         this.brokerController.getProducerManager().doChannelCloseEvent(remoteAddr, channel);
         this.brokerController.getConsumerManager().doChannelCloseEvent(remoteAddr, channel);
@@ -79,6 +86,7 @@ public class ClientHousekeepingService implements ChannelEventListener {
     }
 
     @Override
+    // Channel空闲事件：清理Producer和Consumer的连接
     public void onChannelIdle(String remoteAddr, Channel channel) {
         this.brokerController.getProducerManager().doChannelCloseEvent(remoteAddr, channel);
         this.brokerController.getConsumerManager().doChannelCloseEvent(remoteAddr, channel);
@@ -86,6 +94,7 @@ public class ClientHousekeepingService implements ChannelEventListener {
     }
 
     @Override
+    // Channel激活事件（空实现）
     public void onChannelActive(String remoteAddr, Channel channel) {
 
     }

@@ -63,26 +63,41 @@ import static org.apache.rocketmq.store.metrics.DefaultStoreMetricsConstant.LABE
 import static org.apache.rocketmq.store.metrics.DefaultStoreMetricsConstant.LABEL_TIMING_BOUND;
 import static org.apache.rocketmq.store.metrics.DefaultStoreMetricsConstant.LABEL_TOPIC;
 
-public class DefaultStoreMetricsManager implements StoreMetricsManager {
+    // 默认存储指标管理器：收集和报告消息存储的各种性能指标
+    public class DefaultStoreMetricsManager implements StoreMetricsManager {
     private Supplier<AttributesBuilder> attributesBuilderSupplier;
     private MessageStoreConfig messageStoreConfig;
 
+    // 存储大小
     private ObservableLongGauge storageSize = new NopObservableLongGauge();
+    // 刷盘落后量
     private ObservableLongGauge flushBehind = new NopObservableLongGauge();
+    // 分发落后量
     private ObservableLongGauge dispatchBehind = new NopObservableLongGauge();
+    // 消息保留时间
     private ObservableLongGauge messageReserveTime = new NopObservableLongGauge();
 
+    // 定时消息入队延迟
     private ObservableLongGauge timerEnqueueLag = new NopObservableLongGauge();
+    // 定时消息入队耗时
     private ObservableLongGauge timerEnqueueLatency = new NopObservableLongGauge();
+    // 定时消息出队延迟
     private ObservableLongGauge timerDequeueLag = new NopObservableLongGauge();
+    // 定时消息出队耗时
     private ObservableLongGauge timerDequeueLatency = new NopObservableLongGauge();
+    // 定时消息数量
     private ObservableLongGauge timingMessages = new NopObservableLongGauge();
 
+    // 定时消息出队总数
     private LongCounter timerDequeueTotal = new NopLongCounter();
+    // 定时消息入队总数
     private LongCounter timerEnqueueTotal = new NopLongCounter();
+    // 定时消息快照
     private ObservableLongGauge timerMessageSnapshot = new NopObservableLongGauge();
+    // 定时消息写入延迟
     private LongHistogram timerMessageSetLatency = new NopLongHistogram();
 
+    // RocksDB存储指标管理器
     private RocksDBStoreMetricsManager rocksDBStoreMetricsManager;
 
     public DefaultStoreMetricsManager() {

@@ -16,22 +16,31 @@
  */
 package org.apache.rocketmq.store;
 
-public class RunningFlags {
+    // 运行标志位：控制消息存储的读写状态
+    public class RunningFlags {
 
+    // 不可读标志
     private static final int NOT_READABLE_BIT = 1;
 
+    // 不可写标志
     private static final int NOT_WRITEABLE_BIT = 1 << 1;
 
+    // 写逻辑队列（ConsumeQueue）错误标志
     private static final int WRITE_LOGICS_QUEUE_ERROR_BIT = 1 << 2;
 
+    // 写索引文件错误标志
     private static final int WRITE_INDEX_FILE_ERROR_BIT = 1 << 3;
 
+    // 磁盘满标志
     private static final int DISK_FULL_BIT = 1 << 4;
 
+    // 被隔离标志（Controller模式下使用）
     private static final int FENCED_BIT = 1 << 5;
 
+    // 逻辑磁盘满标志
     private static final int LOGIC_DISK_FULL_BIT = 1 << 6;
 
+    // 标志位（使用位运算操作）
     private volatile int flagBits = 0;
 
     public RunningFlags() {

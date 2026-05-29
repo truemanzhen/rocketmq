@@ -81,11 +81,13 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         initConfigBlackList();
     }
 
+    // 初始化配置黑名单，防止通过管理命令修改关键配置项
     private void initConfigBlackList() {
         configBlackList.add("configBlackList");
         configBlackList.add("configStorePath");
         configBlackList.add("kvConfigPath");
         configBlackList.add("rocketmqHome");
+        // 合并用户自定义的黑名单配置项
         String[] configArray = namesrvController.getNamesrvConfig().getConfigBlackList().split(";");
         configBlackList.addAll(Arrays.asList(configArray));
     }
@@ -101,6 +103,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
                 request);
         }
 
+        // 根据请求码分发到对应的处理方法
         switch (request.getCode()) {
             case RequestCode.PUT_KV_CONFIG:
                 return this.putKVConfig(ctx, request);
@@ -163,12 +166,14 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         final PutKVConfigRequestHeader requestHeader =
             (PutKVConfigRequestHeader) request.decodeCommandCustomHeader(PutKVConfigRequestHeader.class);
 
+        // 校验命名空间和key不能为空
         if (requestHeader.getNamespace() == null || requestHeader.getKey() == null) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("namespace or key is null");
             return response;
         }
 
+        // 将KV配置写入内存并持久化到文件
         this.namesrvController.getKvConfigManager().putKVConfig(
             requestHeader.getNamespace(),
             requestHeader.getKey(),
@@ -187,6 +192,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         final GetKVConfigRequestHeader requestHeader =
             (GetKVConfigRequestHeader) request.decodeCommandCustomHeader(GetKVConfigRequestHeader.class);
 
+        // 从内存KV表中查询配置值
         String value = this.namesrvController.getKvConfigManager().getKVConfig(
             requestHeader.getNamespace(),
             requestHeader.getKey()
@@ -227,6 +233,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         final RegisterBrokerRequestHeader requestHeader =
             (RegisterBrokerRequestHeader) request.decodeCommandCustomHeader(RegisterBrokerRequestHeader.class);
 
+        // CRC32校验，确保请求体在传输过程中未被篡改
         if (!checksum(ctx, request, requestHeader)) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("crc32 not match");
@@ -236,6 +243,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         TopicConfigSerializeWrapper topicConfigWrapper = null;
         List<String> filterServerList = null;
 
+        // 根据Broker版本解码注册请求体：高版本包含Topic配置+过滤服务器列表，低版本仅包含Topic配置
         Version brokerVersion = MQVersion.value2Version(request.getVersion());
         if (brokerVersion.ordinal() >= MQVersion.Version.V3_0_11.ordinal()) {
             final RegisterBrokerBody registerBrokerBody = extractRegisterBrokerBodyFromRequest(request, requestHeader);
@@ -246,6 +254,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
             topicConfigWrapper = extractRegisterTopicConfigFromRequest(request);
         }
 
+        // 向路由管理器注册Broker，更新路由表（Topic路由表、Broker地址表、集群表等）
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),
@@ -270,6 +279,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         responseHeader.setHaServerAddr(result.getHaServerAddr());
         responseHeader.setMasterAddr(result.getMasterAddr());
 
+        // 如果配置了返回顺序Topic配置，则将顺序Topic配置一并返回给Broker
         if (this.namesrvController.getNamesrvConfig().isReturnOrderTopicConfigToBroker()) {
             byte[] jsonValue = this.namesrvController.getKvConfigManager().getKVListByNamespace(NamesrvUtil.NAMESPACE_ORDER_TOPIC_CONFIG);
             response.setBody(jsonValue);
@@ -351,7 +361,9 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         String clusterName = requestHeader.getClusterName();
         String brokerAddr = requestHeader.getBrokerAddr();
 
+        // 比较Broker上报的DataVersion与NameServer记录的版本，判断Topic配置是否变化
         Boolean changed = this.namesrvController.getRouteInfoManager().isBrokerTopicConfigChanged(clusterName, brokerAddr, dataVersion);
+        // 更新Broker最后上报时间戳
         this.namesrvController.getRouteInfoManager().updateBrokerInfoUpdateTimestamp(clusterName, brokerAddr);
 
         DataVersion nameSeverDataVersion = this.namesrvController.getRouteInfoManager().queryBrokerTopicConfig(clusterName, brokerAddr);
@@ -370,6 +382,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         final UnRegisterBrokerRequestHeader requestHeader = (UnRegisterBrokerRequestHeader) request.decodeCommandCustomHeader(UnRegisterBrokerRequestHeader.class);
 
+        // 将注销请求提交到异步处理队列，由BatchUnregistrationService批量处理
         if (!this.namesrvController.getRouteInfoManager().submitUnRegisterBrokerRequest(requestHeader)) {
             log.warn("Couldn't submit the unregister broker request to handler, broker info: {}", requestHeader);
             response.setCode(ResponseCode.SYSTEM_ERROR);
@@ -387,6 +400,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         final BrokerHeartbeatRequestHeader requestHeader =
             (BrokerHeartbeatRequestHeader) request.decodeCommandCustomHeader(BrokerHeartbeatRequestHeader.class);
 
+        // 收到心跳后更新Broker最后活跃时间戳
         this.namesrvController.getRouteInfoManager().updateBrokerInfoUpdateTimestamp(requestHeader.getClusterName(), requestHeader.getBrokerAddr());
 
         response.setCode(ResponseCode.SUCCESS);
@@ -412,6 +426,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         final WipeWritePermOfBrokerRequestHeader requestHeader =
             (WipeWritePermOfBrokerRequestHeader) request.decodeCommandCustomHeader(WipeWritePermOfBrokerRequestHeader.class);
 
+        // 清除Broker的写权限，返回受影响的Topic数量
         int wipeTopicCnt = this.namesrvController.getRouteInfoManager().wipeWritePermOfBrokerByLock(requestHeader.getBrokerName());
 
         if (ctx != null) {
@@ -433,6 +448,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         final AddWritePermOfBrokerResponseHeader responseHeader = (AddWritePermOfBrokerResponseHeader) response.readCustomHeader();
         final AddWritePermOfBrokerRequestHeader requestHeader = (AddWritePermOfBrokerRequestHeader) request.decodeCommandCustomHeader(AddWritePermOfBrokerRequestHeader.class);
 
+        // 恢复Broker的写权限，返回受影响的Topic数量
         int addTopicCnt = this.namesrvController.getRouteInfoManager().addWritePermOfBrokerByLock(requestHeader.getBrokerName());
 
         log.info("add write perm of broker[{}], client: {}, {}",
@@ -470,7 +486,9 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         final RegisterTopicRequestHeader requestHeader =
             (RegisterTopicRequestHeader) request.decodeCommandCustomHeader(RegisterTopicRequestHeader.class);
 
+        // 解码请求体中的Topic路由数据
         TopicRouteData topicRouteData = TopicRouteData.decode(request.getBody(), TopicRouteData.class);
+        // 将Topic路由信息注册到NameServer
         if (topicRouteData != null && topicRouteData.getQueueDatas() != null && !topicRouteData.getQueueDatas().isEmpty()) {
             this.namesrvController.getRouteInfoManager().registerTopic(requestHeader.getTopic(), topicRouteData.getQueueDatas());
         }
@@ -486,6 +504,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         final DeleteTopicFromNamesrvRequestHeader requestHeader =
             (DeleteTopicFromNamesrvRequestHeader) request.decodeCommandCustomHeader(DeleteTopicFromNamesrvRequestHeader.class);
 
+        // 指定集群则只删除该集群下的Topic路由，否则删除所有集群的Topic路由
         if (requestHeader.getClusterName() != null
             && !requestHeader.getClusterName().isEmpty()) {
             this.namesrvController.getRouteInfoManager().deleteTopic(requestHeader.getTopic(), requestHeader.getClusterName());
@@ -631,6 +650,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
                 return response;
             }
 
+            // 将字符串解析为Properties配置对象
             Properties properties = MixAll.string2Properties(bodyStr);
             if (properties == null) {
                 log.error("updateConfig MixAll.string2Properties error {}", bodyStr);
@@ -638,12 +658,14 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
                 response.setRemark("string2Properties error");
                 return response;
             }
+            // 校验是否包含黑名单中的配置项，防止修改关键配置
             if (validateBlackListConfigExist(properties)) {
                 response.setCode(ResponseCode.NO_PERMISSION);
                 response.setRemark("Can not update config in black list.");
                 return response;
             }
 
+            // 更新配置并触发配置变更监听器
             this.namesrvController.getConfiguration().update(properties);
         }
 
@@ -655,9 +677,11 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
     private RemotingCommand getConfig(ChannelHandlerContext ctx, RemotingCommand request) {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
 
+        // 获取所有配置项的格式化字符串
         String content = this.namesrvController.getConfiguration().getAllConfigsFormatString();
         if (StringUtils.isNotBlank(content)) {
             try {
+                // 根据平台调整配置格式后编码为字节数组
                 content = MixAll.adjustConfigForPlatform(content);
                 response.setBody(content.getBytes(MixAll.DEFAULT_CHARSET));
             } catch (UnsupportedEncodingException e) {
@@ -673,6 +697,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         return response;
     }
 
+    // 校验配置中是否包含黑名单项
     private boolean validateBlackListConfigExist(Properties properties) {
         for (String blackConfig : configBlackList) {
             if (properties.containsKey(blackConfig)) {

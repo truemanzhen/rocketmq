@@ -29,31 +29,47 @@ import java.util.List;
 import org.apache.rocketmq.store.logfile.MappedFile;
 
 /**
- * Extend of consume queue, to store something not important,
- * such as message store time, filter bit map and etc.
- * <p/>
- * <li>1. This class is used only by {@link ConsumeQueue}</li>
- * <li>2. And is weakly reliable.</li>
- * <li>3. Be careful, address returned is always less than 0.</li>
- * <li>4. Pls keep this file small.</li>
+ * ConsumeQueueExt是ConsumeQueue的扩展存储，用于存储非关键数据。
+ *
+ * <h3>存储内容</h3>
+ * <ul>
+ *   <li>消息存储时间</li>
+ *   <li>FilterBitMap（用于SQL92过滤）</li>
+ *   <li>TagHashCode</li>
+ * </ul>
+ *
+ * <h3>注意事项</h3>
+ * <ul>
+ *   <li>仅由ConsumeQueue使用</li>
+ *   <li>可靠性较低（可重建）</li>
+ *   <li>返回的地址始终小于0</li>
+ * </ul>
+ *
+ * @see ConsumeQueue
  */
 public class ConsumeQueueExt {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // MappedFile队列
     private final MappedFileQueue mappedFileQueue;
+    // Topic名称
     private final String topic;
+    // 队列ID
     private final int queueId;
 
+    // 存储路径
     private final String storePath;
+    // 文件大小
     private final int mappedFileSize;
+    // 临时容器（用于读取FilterBitMap）
     private ByteBuffer tempContainer;
 
+    // 文件末尾空白数据长度
     public static final int END_BLANK_DATA_LENGTH = 4;
 
-    /**
-     * Addr can not exceed this value.For compatible.
-     */
+    // 最大地址值（用于兼容性）
     public static final long MAX_ADDR = Integer.MIN_VALUE - 1L;
+    // 最大真实偏移量
     public static final long MAX_REAL_OFFSET = MAX_ADDR - Long.MIN_VALUE;
 
     /**

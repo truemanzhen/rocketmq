@@ -26,11 +26,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class PerfCounter {
+    // 性能计数器：用于统计操作耗时分布
+    public class PerfCounter {
 
+    // 上次打印时间
     private long last = System.currentTimeMillis();
+    // 上次TPS
     private float lastTps = 0.0f;
 
+    // 线程本地的上次打点时间
     private final ThreadLocal<AtomicLong> lastTickMs = new ThreadLocal<AtomicLong>() {
         @Override
         protected AtomicLong initialValue() {
@@ -41,6 +45,7 @@ public class PerfCounter {
     private final Logger logger;
     private String prefix = "DEFAULT";
 
+    // 获取上次TPS
     public float getLastTps() {
         if (System.currentTimeMillis() - last <= maxTimeMsPerCount  + 3000) {
             return lastTps;
@@ -48,10 +53,13 @@ public class PerfCounter {
         return 0.0f;
     }
 
-    //1000 * ms, 1000 * 10 ms, then 100ms every slots
+    // 耗时分布桶（1000 * ms, 1000 * 10 ms, then 100ms every slots）
     private final AtomicInteger[] count;
+    // 总请求数
     private final AtomicLong allCount;
+    // 每次统计的最大请求数
     private final int maxNumPerCount;
+    // 每次统计的最大时间（毫秒）
     private final int maxTimeMsPerCount;
 
 

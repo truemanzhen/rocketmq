@@ -27,77 +27,42 @@ import org.apache.rocketmq.store.DefaultMessageStore;
 import org.apache.rocketmq.store.config.MessageStoreConfig;
 import org.rocksdb.RocksDBException;
 
-public interface HAService {
+    // HA（高可用）服务接口：定义主从复制和故障切换的契约
+    public interface HAService {
 
-    /**
-     * Init HAService, must be called before other methods.
-     *
-     * @param defaultMessageStore
-     * @throws IOException
-     */
+    // 初始化HA服务，必须在其他方法之前调用
     void init(DefaultMessageStore defaultMessageStore) throws IOException;
 
-    /**
-     * Start HA Service
-     *
-     * @throws Exception
-     */
+    // 启动HA服务
     void start() throws Exception;
 
-    /**
-     * Shutdown HA Service
-     */
+    // 关闭HA服务
     void shutdown();
 
-    /**
-     * Change to master state
-     *
-     * @param masterEpoch the new masterEpoch
-     */
+    // 切换到Master状态（Controller模式下使用）
     default boolean changeToMaster(int masterEpoch) throws RocksDBException {
         return false;
     }
 
-    /**
-     * Change to master state
-     *
-     * @param masterEpoch the new masterEpoch
-     */
+    // 当上次角色已经是Master时，切换到Master状态
     default boolean changeToMasterWhenLastRoleIsMaster(int masterEpoch) {
         return false;
     }
 
-    /**
-     * Change to slave state
-     *
-     * @param newMasterAddr new master addr
-     * @param newMasterEpoch new masterEpoch
-     */
+    // 切换到Slave状态（Controller模式下使用）
     default boolean changeToSlave(String newMasterAddr, int newMasterEpoch, Long slaveId) {
         return false;
     }
 
-    /**
-     * Change to slave state
-     *
-     * @param newMasterAddr new master addr
-     * @param newMasterEpoch new masterEpoch
-     */
+    // 当Master未变化时，切换到Slave状态
     default boolean changeToSlaveWhenMasterNotChange(String newMasterAddr, int newMasterEpoch) {
         return false;
     }
 
-    /**
-     * Update master address
-     *
-     * @param newAddr
-     */
+    // 更新Master地址
     void updateMasterAddress(String newAddr);
 
-    /**
-     * Update ha master address
-     *
-     * @param newAddr
+    // 更新HA Master地址
      */
     void updateHaMasterAddress(String newAddr);
 

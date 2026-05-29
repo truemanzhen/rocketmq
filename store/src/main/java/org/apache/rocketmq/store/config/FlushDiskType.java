@@ -16,7 +16,10 @@
  */
 package org.apache.rocketmq.store.config;
 
-public enum FlushDiskType {
+    // 刷盘策略枚举
+    public enum FlushDiskType {
+    // 同步刷盘：消息写入内存后立即刷盘，数据可靠性高但性能较低
     SYNC_FLUSH,
+    // 异步刷盘：消息写入内存后异步刷盘，性能高但可能丢失少量数据
     ASYNC_FLUSH
 }

@@ -148,6 +148,7 @@ public class NamesrvStartup {
 
     }
 
+    // 创建并启动NameServer控制器
     public static NamesrvController createAndStartNamesrvController() throws Exception {
         // 创建
         NamesrvController controller = createNamesrvController();
@@ -160,36 +161,41 @@ public class NamesrvStartup {
         return controller;
     }
 
+    // 创建NameServer控制器实例，注册配置
     public static NamesrvController createNamesrvController() {
 
         final NamesrvController controller = new NamesrvController(namesrvConfig, nettyServerConfig, nettyClientConfig);
-        // remember all configs to prevent discard
+        // 注册所有配置到Configuration，支持运行时动态更新
         controller.getConfiguration().registerConfig(properties);
         return controller;
     }
 
+    // 初始化并启动NameServer控制器
     public static NamesrvController start(final NamesrvController controller) throws Exception {
 
         if (null == controller) {
             throw new IllegalArgumentException("NamesrvController is null");
         }
 
+        // 初始化：加载配置、创建网络组件、注册处理器、启动定时任务
         boolean initResult = controller.initialize();
         if (!initResult) {
             controller.shutdown();
             System.exit(-3);
         }
-        // 注册 JVM 关闭钩子
+        // 注册 JVM 关闭钩子，确保优雅关闭
         Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, (Callable<Void>) () -> {
             controller.shutdown();
             return null;
         }));
 
+        // 启动Netty Server/Client，开始监听端口
         controller.start();
 
         return controller;
     }
 
+    // 创建并启动ControllerManager（Raft选主模式）
     public static ControllerManager createAndStartControllerManager() throws Exception {
         ControllerManager controllerManager = createControllerManager();
         start(controllerManager);
@@ -199,14 +205,16 @@ public class NamesrvStartup {
         return controllerManager;
     }
 
+    // 创建ControllerManager实例，克隆NettyServerConfig避免与NameServer端口冲突
     public static ControllerManager createControllerManager() throws Exception {
         NettyServerConfig controllerNettyServerConfig = (NettyServerConfig) nettyServerConfig.clone();
         ControllerManager controllerManager = new ControllerManager(controllerConfig, controllerNettyServerConfig, nettyClientConfig);
-        // remember all configs to prevent discard
+        // 注册所有配置到Configuration，支持运行时动态更新
         controllerManager.getConfiguration().registerConfig(properties);
         return controllerManager;
     }
 
+    // 初始化并启动ControllerManager
     public static ControllerManager start(final ControllerManager controllerManager) throws Exception {
 
         if (null == controllerManager) {
@@ -219,6 +227,7 @@ public class NamesrvStartup {
             System.exit(-3);
         }
 
+        // 注册JVM关闭钩子，确保优雅关闭
         Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, (Callable<Void>) () -> {
             controllerManager.shutdown();
             return null;

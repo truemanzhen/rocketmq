@@ -45,6 +45,7 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
 
     public ClientRequestProcessor(final NamesrvController namesrvController) {
         this.namesrvController = namesrvController;
+        // 记录NameServer启动时间，用于判断服务是否就绪
         this.startupTimeMillis = System.currentTimeMillis();
     }
 
@@ -60,6 +61,7 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
         final GetRouteInfoRequestHeader requestHeader =
             (GetRouteInfoRequestHeader) request.decodeCommandCustomHeader(GetRouteInfoRequestHeader.class);
 
+        // 判断NameServer启动后是否已过等待期，确保路由数据已加载完成
         boolean namesrvReady = System.currentTimeMillis() - startupTimeMillis >= TimeUnit.SECONDS.toMillis(namesrvController.getNamesrvConfig().getWaitSecondsForService());
 
         if (namesrvController.getNamesrvConfig().isNeedWaitForService() && !namesrvReady) {
@@ -69,6 +71,7 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 从路由管理器中查找该Topic的路由信息（QueueData列表 + BrokerData列表 + FilterServer列表）
         TopicRouteData topicRouteData = this.namesrvController.getRouteInfoManager().pickupTopicRouteData(requestHeader.getTopic());
 
         if (topicRouteData != null) {
@@ -80,6 +83,7 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
             }
 
             byte[] content;
+            // 根据客户端版本选择JSON序列化方式：高版本使用标准JSON，低版本使用兼容格式
             Boolean standardJsonOnly = Optional.ofNullable(requestHeader.getAcceptStandardJsonOnly()).orElse(false);
             if (request.getVersion() >= MQVersion.Version.V4_9_4.ordinal() || standardJsonOnly) {
                 content = topicRouteData.encode(JSONWriter.Feature.BrowserCompatible,

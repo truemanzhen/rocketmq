@@ -21,46 +21,60 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
-public class MessageStoreStateMachine {
+    // 消息存储状态机：管理消息存储的生命周期状态
+    public class MessageStoreStateMachine {
     protected final Logger log;
 
+    // 当前状态
     private MessageStoreState currentState;
+    // 上次状态变更时间戳
     private long lastStateChangeTimestamp;
+    // 启动时间戳
     private final long startTimestamp;
 
+    // 消息存储状态枚举
     public enum MessageStoreState {
+        // 初始化
         INIT(0),
 
+        // 加载阶段
         LOAD_BEGIN(10),
         LOAD_COMMITLOG_OK(11),
         LOAD_CONSUME_QUEUE_OK(12),
         LOAD_COMPACTION_OK(13),
         LOAD_INDEX_OK(14),
 
+        // 恢复阶段
         RECOVER_BEGIN(20),
         RECOVER_CONSUME_QUEUE_OK(21),
         RECOVER_COMMITLOG_OK(22),
         RECOVER_TOPIC_QUEUE_TABLE_OK(23),
 
+        // 运行中
         RUNNING(30),
 
+        // 关闭阶段
         SHUTDOWN_BEGIN(40),
         SHUTDOWN_OK(41);
 
+        // 状态顺序
         final int order;
 
         MessageStoreState(int order) {
             this.order = order;
         }
 
+        // 获取状态顺序
         public int getOrder() {
             return order;
         }
 
+        // 判断是否在指定状态之前
         public boolean isBefore(MessageStoreState storeState) {
             return this.order < storeState.order;
         }
 
+        // 判断是否在指定状态之后
         public boolean isAfter(MessageStoreState storeState) {
             return this.order > storeState.order;
         }

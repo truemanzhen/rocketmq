@@ -72,33 +72,80 @@ import org.apache.rocketmq.store.util.LibC;
 import org.rocksdb.RocksDBException;
 
 /**
- * Store all metadata downtime for recovery, data protection reliability
+ * CommitLog是RocketMQ消息存储的核心组件，负责将所有消息顺序写入磁盘。
+ *
+ * <h3>核心职责</h3>
+ * <ul>
+ *   <li>消息写入：将Producer发送的消息追加到CommitLog文件</li>
+ *   <li>数据恢复：Broker重启时从CommitLog恢复消息</li>
+ *   <li>消息分发：将消息分发到ConsumeQueue和IndexFile</li>
+ *   <li>刷盘管理：支持同步刷盘和异步刷盘</li>
+ *   <li>HA复制：支持主从同步复制</li>
+ * </ul>
+ *
+ * <h3>存储格式</h3>
+ * <pre>
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │                     CommitLog File                          │
+ * │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐          │
+ * │  │Message 1│ │Message 2│ │Message 3│ │  ...    │          │
+ * │  └─────────┘ └─────────┘ └─────────┘ └─────────┘          │
+ * └─────────────────────────────────────────────────────────────┘
+ * </pre>
+ *
+ * <h3>使用示例</h3>
+ * <pre>{@code
+ * // 写入消息
+ * PutMessageResult result = commitLog.putMessage(msg);
+ * if (result.getPutMessageStatus() == PutMessageStatus.PUT_OK) {
+ *     // 写入成功
+ * }
+ *
+ * // 读取消息
+ * SelectMappedBufferResult result = commitLog.getData(offset);
+ * ByteBuffer buffer = result.getByteBuffer();
+ * }</pre>
+ *
+ * @see MappedFileQueue
+ * @see ConsumeQueue
+ * @see DefaultMessageStore
  */
 public class CommitLog implements Swappable {
-    // Message's MAGIC CODE daa320a7
+    // 消息魔术码（用于校验消息格式）
     public final static int MESSAGE_MAGIC_CODE = -626843481;
     protected static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
-    // End of file empty MAGIC CODE cbd43194
+    // 文件末尾空白魔术码（用于标识文件结束）
     public final static int BLANK_MAGIC_CODE = -875286124;
     /**
-     * CRC32 Format: [PROPERTY_CRC32 + NAME_VALUE_SEPARATOR + 10-digit fixed-length string + PROPERTY_SEPARATOR]
+     * CRC32校验码保留长度
+     * 格式：[PROPERTY_CRC32 + NAME_VALUE_SEPARATOR + 10位固定长度字符串 + PROPERTY_SEPARATOR]
      */
     public static final int CRC32_RESERVED_LEN = MessageConst.PROPERTY_CRC32.length() + 1 + 10 + 1;
+    // MappedFile队列，管理所有CommitLog文件
     protected final MappedFileQueue mappedFileQueue;
+    // 默认消息存储引用
     protected final DefaultMessageStore defaultMessageStore;
 
+    // 刷盘管理器
     private final FlushManager flushManager;
+    // 冷数据检查服务
     private final ColdDataCheckService coldDataCheckService;
 
+    // 消息追加回调
     private final AppendMessageCallback appendMessageCallback;
+    // 线程本地的编码器（避免线程竞争）
     private final ThreadLocal<PutMessageThreadLocal> putMessageThreadLocal;
 
+    // 已确认偏移量（用于HA同步复制）
     protected volatile long confirmOffset = -1L;
 
+    // 锁开始时间（用于性能统计）
     private volatile long beginTimeInLock = 0;
 
+    // 写入锁（自旋锁或可重入锁）
     protected final PutMessageLock putMessageLock;
 
+    // TopicQueue锁（保证同一队列的消息顺序）
     protected final TopicQueueLock topicQueueLock;
 
     private volatile Set<String> fullStorePaths = Collections.emptySet();
@@ -114,6 +161,7 @@ public class CommitLog implements Swappable {
         RunningFlags runningFlags = messageStore.getMessageStoreConfig().isEnableRunningFlagsInFlush()
             ? messageStore.getRunningFlags() : null;
 
+        // 根据是否配置多路径存储，创建不同的MappedFileQueue实现
         if (storePath.contains(MixAll.MULTI_PATH_SPLITTER)) {
             this.mappedFileQueue = new MultiPathMappedFileQueue(messageStore.getMessageStoreConfig(),
                 messageStore.getMessageStoreConfig().getMappedFileSizeCommitLog(),
@@ -128,10 +176,13 @@ public class CommitLog implements Swappable {
 
         this.defaultMessageStore = messageStore;
 
+        // 刷盘管理器：负责同步/异步刷盘
         this.flushManager = new DefaultFlushManager();
         this.coldDataCheckService = new ColdDataCheckService();
 
+        // 消息追加回调：负责将消息编码并写入MappedFile
         this.appendMessageCallback = new DefaultAppendMessageCallback(defaultMessageStore.getMessageStoreConfig());
+        // 每个线程独立的编码器，避免线程竞争
         putMessageThreadLocal = new ThreadLocal<PutMessageThreadLocal>() {
             @Override
             protected PutMessageThreadLocal initialValue() {
@@ -139,17 +190,21 @@ public class CommitLog implements Swappable {
             }
         };
 
+        // 根据配置选择锁策略：自适应自旋锁/可重入锁/自旋锁
         PutMessageLock adaptiveBackOffSpinLock = new AdaptiveBackOffSpinLockImpl();
 
         this.putMessageLock = messageStore.getMessageStoreConfig().getUseABSLock() ? adaptiveBackOffSpinLock :
             messageStore.getMessageStoreConfig().isUseReentrantLockWhenPutMessage() ? new PutMessageReentrantLock() : new PutMessageSpinLock();
 
+        // 刷盘观察者线程：监控刷盘进度
         this.flushDiskWatcher = new FlushDiskWatcher();
 
+        // TopicQueue锁：保证同一TopicQueue的消息顺序写入
         this.topicQueueLock = new TopicQueueLock(messageStore.getMessageStoreConfig().getTopicQueueLockNum());
 
         this.commitLogSize = messageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
 
+        // 是否在消息属性中追加CRC32校验
         this.enabledAppendPropCRC = messageStore.getMessageStoreConfig().isEnabledAppendPropCRC();
     }
 
@@ -337,9 +392,11 @@ public class CommitLog implements Swappable {
      *
      * @throws RocksDBException only in rocksdb mode
      */
+    // 正常关机后的数据恢复：从最后一个文件开始校验，找到最后一条有效消息的位置
     public void recoverNormally(long dispatchFromPhyOffset) throws RocksDBException {
         boolean checkCRCOnRecover = this.defaultMessageStore.getMessageStoreConfig().isCheckCRCOnRecover();
         boolean checkDupInfo = this.defaultMessageStore.getMessageStoreConfig().isDuplicationEnable();
+        // 最大恢复文件数，避免遍历所有文件
         int maxRecoverNum = this.defaultMessageStore.getMessageStoreConfig().getCommitLogRecoverMaxNum();
         if (maxRecoverNum <= 0) {
             maxRecoverNum = 10;
@@ -347,6 +404,7 @@ public class CommitLog implements Swappable {
         log.info("recoverNormally maxRecoverNum: {}", maxRecoverNum);
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
+            // 从最后一个文件向前查找，找到第一个可以安全恢复的文件
             int index = mappedFiles.size() - 1;
             while (index > 0) {
                 MappedFile mappedFile = mappedFiles.get(index);
@@ -365,14 +423,16 @@ public class CommitLog implements Swappable {
             long mappedFileOffset = 0;
             long lastValidMsgPhyOffset = this.getConfirmOffset();
 
+            // 逐条校验消息，找到最后一条有效消息的位置
             while (true) {
                 DispatchRequest dispatchRequest = this.checkMessageAndReturnSize(byteBuffer, checkCRCOnRecover, checkDupInfo);
                 int size = dispatchRequest.getMsgSize();
                 boolean doDispatch = dispatchRequest.getCommitLogOffset() > dispatchFromPhyOffset;
-                // Normal data
+                // 消息校验成功且大小>0，继续下一条
                 if (dispatchRequest.isSuccess() && size > 0) {
                     lastValidMsgPhyOffset = processOffset + mappedFileOffset;
                     mappedFileOffset += size;
+                    // 触发消息分发（构建ConsumeQueue和IndexFile）
                     this.getMessageStore().onCommitLogDispatch(dispatchRequest, doDispatch, mappedFile, true, false);
                 }
                 // Come the end of the file, switch to the next file Since the
@@ -403,8 +463,10 @@ public class CommitLog implements Swappable {
                 }
             }
 
+            // 计算最终的有效偏移量
             processOffset += mappedFileOffset;
 
+            // Controller模式下校正confirmOffset
             if (this.defaultMessageStore.getBrokerConfig().isEnableControllerMode()) {
                 if (this.defaultMessageStore.getConfirmOffset() < this.defaultMessageStore.getMinPhyOffset()) {
                     log.error("confirmOffset {} is less than minPhyOffset {}, correct confirmOffset to minPhyOffset", this.defaultMessageStore.getConfirmOffset(), this.defaultMessageStore.getMinPhyOffset());
@@ -417,11 +479,13 @@ public class CommitLog implements Swappable {
                 this.setConfirmOffset(lastValidMsgPhyOffset);
             }
 
-            // Clear ConsumeQueue redundant data
+            // 截断ConsumeQueue中超出CommitLog有效范围的数据
             this.defaultMessageStore.truncateDirtyLogicFiles(processOffset);
 
+            // 更新刷盘位置和提交位置
             this.mappedFileQueue.setFlushedWhere(processOffset);
             this.mappedFileQueue.setCommittedWhere(processOffset);
+            // 截断超出有效范围的MappedFile
             this.mappedFileQueue.truncateDirtyFiles(processOffset);
         } else {
             // Commitlog case files are deleted
@@ -966,15 +1030,16 @@ public class CommitLog implements Swappable {
         }
     }
 
+    // 异步写入单条消息到CommitLog
     public CompletableFuture<PutMessageResult> asyncPutMessage(final MessageExtBrokerInner msg) {
-        // Set the storage time
+        // 设置消息存储时间戳
         if (!defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()) {
             msg.setStoreTimestamp(System.currentTimeMillis());
         }
-        // Set the message body CRC (consider the most appropriate setting on the client)
+        // 计算消息体CRC32校验码
         msg.setBodyCRC(UtilAll.crc32(msg.getBody()));
         if (enabledAppendPropCRC) {
-            // delete crc32 properties if exist
+            // 删除已有的CRC32属性，避免重复
             msg.deleteProperty(MessageConst.PROPERTY_CRC32);
         }
         // Back to Results
@@ -982,6 +1047,7 @@ public class CommitLog implements Swappable {
 
         StoreStatsService storeStatsService = this.defaultMessageStore.getStoreStatsService();
 
+        // 根据Topic名称长度自动选择消息版本（V1/V2）
         String topic = msg.getTopic();
         msg.setVersion(MessageVersion.MESSAGE_VERSION_V1);
         boolean autoMessageVersionOnTopicLen =
@@ -990,6 +1056,7 @@ public class CommitLog implements Swappable {
             msg.setVersion(MessageVersion.MESSAGE_VERSION_V2);
         }
 
+        // 设置IPv6标志
         InetSocketAddress bornSocketAddress = (InetSocketAddress) msg.getBornHost();
         if (bornSocketAddress.getAddress() instanceof Inet6Address) {
             msg.setBornHostV6Flag();
@@ -1002,11 +1069,14 @@ public class CommitLog implements Swappable {
 
         PutMessageThreadLocal putMessageThreadLocal = this.putMessageThreadLocal.get();
         updateMaxMessageSize(putMessageThreadLocal);
+        // 生成TopicQueue唯一键，用于锁粒度控制
         String topicQueueKey = generateKey(putMessageThreadLocal.getKeyBuilder(), msg);
         long elapsedTimeInLock = 0;
         MappedFile unlockMappedFile = null;
+        // 获取当前最后一个MappedFile（即当前写入的文件）
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
+        // 计算当前物理偏移量
         long currOffset;
         if (mappedFile == null) {
             currOffset = 0;
@@ -1014,9 +1084,11 @@ public class CommitLog implements Swappable {
             currOffset = mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
         }
 
+        // HA相关：计算需要确认的副本数
         int needAckNums = this.defaultMessageStore.getMessageStoreConfig().getInSyncReplicas();
         boolean needHandleHA = needHandleHA(msg);
 
+        // Controller模式下检查同步副本数是否满足最小要求
         if (needHandleHA && this.defaultMessageStore.getBrokerConfig().isEnableControllerMode()) {
             if (this.defaultMessageStore.getHaService().inSyncReplicasNums(currOffset) < this.defaultMessageStore.getMessageStoreConfig().getMinInSyncReplicas()) {
                 return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.IN_SYNC_REPLICAS_NOT_ENOUGH, null));
@@ -1026,6 +1098,7 @@ public class CommitLog implements Swappable {
                 needAckNums = MixAll.ALL_ACK_IN_SYNC_STATE_SET;
             }
         } else if (needHandleHA && this.defaultMessageStore.getBrokerConfig().isEnableSlaveActingMaster()) {
+            // Slave Acting Master模式下计算需要确认的副本数
             int inSyncReplicas = Math.min(this.defaultMessageStore.getAliveReplicaNumInGroup(),
                 this.defaultMessageStore.getHaService().inSyncReplicasNums(currOffset));
             needAckNums = calcNeedAckNums(inSyncReplicas);
@@ -1035,9 +1108,11 @@ public class CommitLog implements Swappable {
             }
         }
 
+        // 按TopicQueue粒度加锁，保证同一队列的消息顺序
         topicQueueLock.lock(topicQueueKey);
         try {
 
+            // 非去重模式下需要分配队列偏移量
             boolean needAssignOffset = true;
             if (defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()
                 && defaultMessageStore.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE) {
@@ -1047,6 +1122,7 @@ public class CommitLog implements Swappable {
                 defaultMessageStore.assignOffset(msg);
             }
 
+            // 将消息编码为字节数组
             PutMessageResult encodeResult = putMessageThreadLocal.getEncoder().encode(msg);
             if (encodeResult != null) {
                 return CompletableFuture.completedFuture(encodeResult);
@@ -1054,17 +1130,18 @@ public class CommitLog implements Swappable {
             msg.setEncodedBuff(putMessageThreadLocal.getEncoder().getEncoderBuffer());
             PutMessageContext putMessageContext = new PutMessageContext(topicQueueKey);
 
+            // 加写锁（自旋锁或可重入锁），保证CommitLog写入的串行化
             putMessageLock.lock(); //spin or ReentrantLock, depending on store config
             try {
                 long beginLockTimestamp = this.defaultMessageStore.getSystemClock().now();
                 this.beginTimeInLock = beginLockTimestamp;
 
-                // Here settings are stored timestamp, in order to ensure an orderly
-                // global
+                // 更新存储时间戳，保证全局有序
                 if (!defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()) {
                     msg.setStoreTimestamp(beginLockTimestamp);
                 }
 
+                // 当前文件已满或不存在时，创建新的MappedFile
                 if (null == mappedFile || mappedFile.isFull()) {
                     mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
                     if (isCloseReadAhead()) {
@@ -1076,12 +1153,14 @@ public class CommitLog implements Swappable {
                     return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPPED_FILE_FAILED, null));
                 }
 
+                // 将消息追加到MappedFile
                 result = mappedFile.appendMessage(msg, this.appendMessageCallback, putMessageContext);
                 switch (result.getStatus()) {
                     case PUT_OK:
                         onCommitLogAppend(msg, result, mappedFile);
                         break;
                     case END_OF_FILE:
+                        // 当前文件写满，创建新文件重新写入
                         onCommitLogAppend(msg, result, mappedFile);
                         unlockMappedFile = mappedFile;
                         // Create a new file, re-write the message
@@ -1112,7 +1191,7 @@ public class CommitLog implements Swappable {
                 beginTimeInLock = 0;
                 putMessageLock.unlock();
             }
-            // Increase queue offset when messages are successfully written
+            // 消息写入成功后，增加队列偏移量
             if (AppendMessageStatus.PUT_OK.equals(result.getStatus())) {
                 this.defaultMessageStore.increaseOffset(msg, getMessageNum(msg));
             }
@@ -1132,10 +1211,11 @@ public class CommitLog implements Swappable {
 
         PutMessageResult putMessageResult = new PutMessageResult(PutMessageStatus.PUT_OK, result);
 
-        // Statistics
+        // 统计消息写入量和大小
         storeStatsService.getSinglePutMessageTopicTimesTotal(msg.getTopic()).add(result.getMsgNum());
         storeStatsService.getSinglePutMessageTopicSizeTotal(topic).add(result.getWroteBytes());
 
+        // 处理刷盘和HA复制
         return handleDiskFlushAndHA(putMessageResult, msg, needAckNums, needHandleHA);
     }
 

@@ -34,11 +34,13 @@ import org.apache.rocketmq.remoting.protocol.header.namesrv.UnRegisterBrokerRequ
  */
 public class BatchUnregistrationService extends ServiceThread {
     private final RouteInfoManager routeInfoManager;
+    // 批量注销请求的阻塞队列
     private BlockingQueue<UnRegisterBrokerRequestHeader> unregistrationQueue;
     private static final Logger log = LoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
 
     public BatchUnregistrationService(RouteInfoManager routeInfoManager, NamesrvConfig namesrvConfig) {
         this.routeInfoManager = routeInfoManager;
+        // 使用配置的容量初始化阻塞队列
         this.unregistrationQueue = new LinkedBlockingQueue<>(namesrvConfig.getUnRegisterBrokerQueueCapacity());
     }
 
@@ -59,15 +61,19 @@ public class BatchUnregistrationService extends ServiceThread {
 
     @Override
     public void run() {
+        // 持续消费队列中的注销请求，直到线程停止
         while (!this.isStopped()) {
             try {
+                // 阻塞等待获取第一个注销请求
                 final UnRegisterBrokerRequestHeader request = unregistrationQueue.take();
                 Set<UnRegisterBrokerRequestHeader> unregistrationRequests = new HashSet<>();
+                // 批量取出队列中所有可用的请求，减少锁竞争
                 unregistrationQueue.drainTo(unregistrationRequests);
 
                 // Add polled request
                 unregistrationRequests.add(request);
 
+                // 批量执行Broker注销，更新路由表
                 this.routeInfoManager.unRegisterBroker(unregistrationRequests);
             } catch (Throwable e) {
                 log.error("Handle unregister broker request failed", e);

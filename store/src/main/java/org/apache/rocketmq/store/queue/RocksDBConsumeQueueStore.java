@@ -55,42 +55,60 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.Statistics;
 import org.rocksdb.WriteBatch;
 
-public class RocksDBConsumeQueueStore extends AbstractConsumeQueueStore {
+    // RocksDB ConsumeQueue存储：基于RocksDB实现的消费队列
+    public class RocksDBConsumeQueueStore extends AbstractConsumeQueueStore {
     private static final Logger ERROR_LOG = LoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
     private static final Logger ROCKSDB_LOG = LoggerFactory.getLogger(LoggerName.ROCKSDB_LOGGER_NAME);
 
+    // 默认ByteBuffer容量
     private static final int DEFAULT_BYTE_BUFFER_CAPACITY = 16;
 
+    // 最大Key长度
     public static final int MAX_KEY_LEN = 300;
 
+    // 定时任务线程池
     private final ScheduledExecutorService scheduledExecutorService;
+    // 存储路径
     private final String storePath;
 
     /**
-     * we use two tables with different ColumnFamilyHandle, called RocksDBConsumeQueueTable and RocksDBConsumeQueueOffsetTable.
-     * 1.RocksDBConsumeQueueTable uses to store CqUnit[physicalOffset, msgSize, tagHashCode, msgStoreTime]
-     * 2.RocksDBConsumeQueueOffsetTable uses to store physicalOffset and consumeQueueOffset(@see PhyAndCQOffset) of topic-queueId
+     * 使用两个不同的ColumnFamilyHandle表：
+     * 1.RocksDBConsumeQueueTable：存储CqUnit[physicalOffset, msgSize, tagHashCode, msgStoreTime]
+     * 2.RocksDBConsumeQueueOffsetTable：存储topic-queueId的physicalOffset和consumeQueueOffset
      */
     private final ConsumeQueueRocksDBStorage rocksDBStorage;
+    // ConsumeQueue表
     private final RocksDBConsumeQueueTable rocksDBConsumeQueueTable;
+    // 偏移量表
     private final RocksDBConsumeQueueOffsetTable rocksDBConsumeQueueOffsetTable;
 
+    // ConsumeQueue ByteBuffer缓存
     private final List<Pair<ByteBuffer, ByteBuffer>> cqBBPairList;
+    // 偏移量 ByteBuffer缓存
     private final List<Pair<ByteBuffer, ByteBuffer>> offsetBBPairList;
+    // 临时TopicQueue最大偏移量Map
     private final Map<ByteBuffer, Pair<ByteBuffer, DispatchEntry>> tempTopicQueueMaxOffsetMap;
+    // 是否有CQ错误
     private volatile boolean isCQError = false;
 
+    // ConsumeQueue ByteBuffer缓存索引
     private int consumeQueueByteBufferCacheIndex;
+    // 偏移量 ByteBuffer缓存索引
     private int offsetBufferCacheIndex;
 
+    // 偏移量初始化器
     private final OffsetInitializer offsetInitializer;
 
+    // RocksDB组提交服务
     private final RocksGroupCommitService groupCommitService;
 
+    // 服务状态
     private final AtomicReference<ServiceState> serviceState = new AtomicReference<>(ServiceState.CREATE_JUST);
 
+    // 清理服务
     private final RocksDBCleanConsumeQueueService cleanConsumeQueueService;
 
+    // 分发起始物理偏移量
     private long dispatchFromPhyOffset;
 
     /**

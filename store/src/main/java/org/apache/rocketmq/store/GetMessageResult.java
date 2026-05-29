@@ -21,28 +21,42 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public class GetMessageResult {
+    // 消息拉取结果：包含从CommitLog读取的消息数据和元信息
+    public class GetMessageResult {
 
+    // 消息数据缓冲区列表（MappedFile中的直接缓冲区）
     private final List<SelectMappedBufferResult> messageMapedList;
+    // 消息数据缓冲区列表（堆内缓冲区）
     private final List<ByteBuffer> messageBufferList;
+    // 消息在ConsumeQueue中的偏移量列表
     private final List<Long> messageQueueOffset;
 
+    // 拉取状态
     private GetMessageStatus status;
+    // 下次拉取的起始偏移量
     private long nextBeginOffset;
+    // ConsumeQueue的最小偏移量
     private long minOffset;
+    // ConsumeQueue的最大偏移量
     private long maxOffset;
 
+    // 消息数据总大小
     private int bufferTotalSize = 0;
 
+    // 消息总数
     private int messageCount = 0;
 
+    // 建议从Slave拉取（当Master负载过高时）
     private boolean suggestPullingFromSlave = false;
 
+    // 商业计费相关
     private int msgCount4Commercial = 0;
     private int commercialSizePerMsg = 4 * 1024;
 
+    // 冷数据大小
     private long coldDataSum = 0L;
 
+    // 过滤掉的消息数量
     private int filterMessageCount;
 
     public static final GetMessageResult NO_MATCH_LOGIC_QUEUE =

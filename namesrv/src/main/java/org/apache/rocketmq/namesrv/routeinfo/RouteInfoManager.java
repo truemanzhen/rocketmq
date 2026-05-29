@@ -155,6 +155,7 @@ public class RouteInfoManager {
         return clusterInfoSerializeWrapper;
     }
 
+    // 手动注册Topic路由信息（通过管理命令）
     public void registerTopic(final String topic, List<QueueData> queueDatas) {
         if (queueDatas == null || queueDatas.isEmpty()) {
             return;
@@ -163,8 +164,10 @@ public class RouteInfoManager {
         try {
             this.lock.writeLock().lockInterruptibly();
             if (this.topicQueueTable.containsKey(topic)) {
+                // Topic已存在，更新已有路由
                 Map<String, QueueData> queueDataMap  = this.topicQueueTable.get(topic);
                 for (QueueData queueData : queueDatas) {
+                    // 校验Broker是否已注册
                     if (!this.brokerAddrTable.containsKey(queueData.getBrokerName())) {
                         log.warn("Register topic contains illegal broker, {}, {}", topic, queueData);
                         return;
@@ -608,6 +611,7 @@ public class RouteInfoManager {
         unRegisterBroker(Sets.newHashSet(unRegisterBrokerRequest));
     }
 
+    // 批量注销Broker，更新所有相关路由表
     public void unRegisterBroker(Set<UnRegisterBrokerRequestHeader> unRegisterRequests) {
         try {
             Set<String> removedBroker = new HashSet<>();
@@ -622,22 +626,26 @@ public class RouteInfoManager {
 
                 BrokerAddrInfo brokerAddrInfo = new BrokerAddrInfo(clusterName, brokerAddr);
 
+                // 从心跳表中移除该Broker
                 BrokerLiveInfo brokerLiveInfo = this.brokerLiveTable.remove(brokerAddrInfo);
                 log.info("unregisterBroker, remove from brokerLiveTable {}, {}",
                     brokerLiveInfo != null ? "OK" : "Failed",
                     brokerAddrInfo
                 );
 
+                // 从过滤服务器表中移除
                 this.filterServerTable.remove(brokerAddrInfo);
 
                 boolean removeBrokerName = false;
                 boolean isMinBrokerIdChanged = false;
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null != brokerData) {
+                    // 检查注销的是否为最小BrokerId（可能是Master）
                     if (!brokerData.getBrokerAddrs().isEmpty() &&
                         unRegisterRequest.getBrokerId().equals(Collections.min(brokerData.getBrokerAddrs().keySet()))) {
                         isMinBrokerIdChanged = true;
                     }
+                    // 从Broker地址表中移除该地址
                     boolean removed = brokerData.getBrokerAddrs().entrySet().removeIf(item -> item.getValue().equals(brokerAddr));
                     log.info("unregisterBroker, remove addr from brokerAddrTable {}, {}",
                         removed ? "OK" : "Failed",
@@ -677,8 +685,10 @@ public class RouteInfoManager {
                 }
             }
 
+            // 清理已注销Broker相关的Topic路由
             cleanTopicByUnRegisterRequests(removedBroker, reducedBroker);
 
+            // 如果最小BrokerId发生变化，通知其他Broker
             if (!needNotifyBrokerMap.isEmpty() && namesrvConfig.isNotifyMinBrokerIdChanged()) {
                 notifyMinBrokerIdChanged(needNotifyBrokerMap);
             }
@@ -737,6 +747,7 @@ public class RouteInfoManager {
         return Collections.min(brokerData.getBrokerAddrs().keySet()) > 0;
     }
 
+    // 根据Topic查找路由信息，组装TopicRouteData返回给客户端
     public TopicRouteData pickupTopicRouteData(final String topic) {
         TopicRouteData topicRouteData = new TopicRouteData();
         boolean foundQueueData = false;
@@ -749,6 +760,7 @@ public class RouteInfoManager {
 
         try {
             this.lock.readLock().lockInterruptibly();
+            // 从Topic路由表获取QueueData列表
             Map<String, QueueData> queueDataMap = this.topicQueueTable.get(topic);
             if (queueDataMap != null) {
                 topicRouteData.setQueueDatas(new ArrayList<>(queueDataMap.values()));
@@ -756,11 +768,13 @@ public class RouteInfoManager {
 
                 Set<String> brokerNameSet = new HashSet<>(queueDataMap.keySet());
 
+                // 根据BrokerName查找对应的Broker地址信息
                 for (String brokerName : brokerNameSet) {
                     BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                     if (null == brokerData) {
                         continue;
                     }
+                    // 克隆BrokerData避免并发修改
                     BrokerData brokerDataClone = new BrokerData(brokerData);
 
                     brokerDataList.add(brokerDataClone);
@@ -785,9 +799,10 @@ public class RouteInfoManager {
         log.debug("pickupTopicRouteData {} {}", topic, topicRouteData);
 
         if (foundBrokerData && foundQueueData) {
-
+            // 设置静态Topic映射信息
             topicRouteData.setTopicQueueMappingByBroker(this.topicQueueMappingInfoTable.get(topic));
 
+            // 如果不支持ActingMaster模式，直接返回
             if (!namesrvConfig.isSupportActingMaster()) {
                 return topicRouteData;
             }
@@ -840,15 +855,19 @@ public class RouteInfoManager {
         return null;
     }
 
+    // 定时扫描不活跃的Broker，关闭超时连接并触发注销
     public void scanNotActiveBroker() {
         try {
             log.info("start scanNotActiveBroker");
             for (Entry<BrokerAddrInfo, BrokerLiveInfo> next : this.brokerLiveTable.entrySet()) {
                 long last = next.getValue().getLastUpdateTimestamp();
                 long timeoutMillis = next.getValue().getHeartbeatTimeoutMillis();
+                // 判断Broker心跳是否超时
                 if ((last + timeoutMillis) < System.currentTimeMillis()) {
+                    // 关闭超时的Netty Channel
                     RemotingHelper.closeChannel(next.getValue().getChannel());
                     log.warn("The broker channel expired, {} {}ms", next.getKey(), timeoutMillis);
+                    // 触发Broker注销流程
                     this.onChannelDestroy(next.getKey());
                 }
             }
@@ -880,6 +899,7 @@ public class RouteInfoManager {
         }
     }
 
+    // Channel销毁时触发，查找对应的Broker并提交注销请求
     public void onChannelDestroy(Channel channel) {
         UnRegisterBrokerRequestHeader unRegisterRequest = new UnRegisterBrokerRequestHeader();
         BrokerAddrInfo brokerAddrFound = null;
@@ -888,6 +908,7 @@ public class RouteInfoManager {
             try {
                 try {
                     this.lock.readLock().lockInterruptibly();
+                    // 在心跳表中查找该Channel对应的Broker
                     for (Entry<BrokerAddrInfo, BrokerLiveInfo> entry : this.brokerLiveTable.entrySet()) {
                         if (entry.getValue().getChannel() == channel) {
                             brokerAddrFound = entry.getKey();

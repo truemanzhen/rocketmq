@@ -48,24 +48,39 @@ import org.apache.rocketmq.store.stats.BrokerStatsManager;
 import org.rocksdb.RocksDBException;
 import static org.apache.rocketmq.store.rocksdb.MessageRocksDBStorage.TRANS_COLUMN_FAMILY;
 
-public class TransMessageRocksDBStore implements CommitLogDispatchStore {
+    // RocksDB事务消息存储：基于RocksDB存储事务消息索引
+    public class TransMessageRocksDBStore implements CommitLogDispatchStore {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static final Logger logError = LoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
+    // 删除标记
     private static final String REMOVE_TAG = "d";
+    // 填充字节
     private static final byte[] FILL_BYTE = new byte[] {(byte) 0};
+    // 默认队列容量
     private static final int DEFAULT_CAPACITY = 100000;
+    // 批处理大小
     private static final int BATCH_SIZE = 1000;
+    // 最大获取消息次数
     private static final int MAX_GET_MSG_TIMES = 3;
+    // 状态常量
     private static final int INITIAL = 0, RUNNING = 1, SHUTDOWN = 2;
     private volatile int state = INITIAL;
 
+    // 消息存储
     private final MessageStore messageStore;
+    // 消息存储配置
     private final MessageStoreConfig storeConfig;
+    // RocksDB存储
     private final MessageRocksDBStorage messageRocksDBStorage;
+    // 统计管理器
     private final BrokerStatsManager brokerStatsManager;
+    // 存储地址
     private final SocketAddress storeHost;
+    // 线程本地缓冲区
     private ThreadLocal<ByteBuffer> bufferLocal = null;
+    // 事务索引构建服务
     private TransIndexBuildService transIndexBuildService;
+    // 原始事务消息队列
     protected BlockingQueue<TransRocksDBRecord> originTransMsgQueue;
 
     public TransMessageRocksDBStore(final MessageStore messageStore, final BrokerStatsManager brokerStatsManager, final SocketAddress storeHost) {
@@ -74,12 +89,14 @@ public class TransMessageRocksDBStore implements CommitLogDispatchStore {
         this.messageRocksDBStorage = messageStore.getMessageRocksDBStorage();
         this.brokerStatsManager = brokerStatsManager;
         this.storeHost = storeHost;
+        // 初始化线程本地缓冲区
         bufferLocal = ThreadLocal.withInitial(() -> ByteBuffer.allocate(storeConfig.getMaxMessageSize()));
         if (storeConfig.isTransRocksDBEnable()) {
             init();
         }
     }
 
+    // 初始化
     private void init() {
         if (this.state == RUNNING) {
             return;

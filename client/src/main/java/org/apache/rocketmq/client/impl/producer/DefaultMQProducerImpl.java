@@ -98,27 +98,82 @@ import org.apache.rocketmq.remoting.protocol.header.SendMessageRequestHeader;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
+/**
+ * DefaultMQProducerImpl是RocketMQ生产者的核心实现，负责消息的发送。
+ *
+ * <h3>核心职责</h3>
+ * <ul>
+ *   <li>消息发送：支持同步、异步、单向发送</li>
+ *   <li>队列选择：支持轮询、指定队列、自定义选择</li>
+ *   <li>故障规避：自动避开故障Broker</li>
+ *   <li>重试机制：发送失败时自动重试</li>
+ *   <li>事务消息：支持分布式事务</li>
+ * </ul>
+ *
+ * <h3>消息发送流程</h3>
+ * <pre>
+ * Producer.send(msg)
+ *     ↓
+ * DefaultMQProducerImpl.sendDefaultImpl()
+ *     ↓
+ * selectOneMessageQueue() - 选择队列
+ *     ↓
+ * sendKernelImpl() - 发送到Broker
+ *     ↓
+ * MQClientAPIImpl.sendMessage() - 网络发送
+ * </pre>
+ *
+ * <h3>使用示例</h3>
+ * <pre>{@code
+ * DefaultMQProducer producer = new DefaultMQProducer("ProducerGroup");
+ * producer.setNamesrvAddr("localhost:9876");
+ * producer.start();
+ *
+ * Message msg = new Message("TopicA", "TagA", "Hello RocketMQ".getBytes());
+ * SendResult result = producer.send(msg);
+ * System.out.println("Send Result: " + result);
+ *
+ * producer.shutdown();
+ * }</pre>
+ *
+ * @see DefaultMQProducer
+ * @see MQClientInstance
+ */
 public class DefaultMQProducerImpl implements MQProducerInner {
 
     private final Logger log = LoggerFactory.getLogger(DefaultMQProducerImpl.class);
     private final Random random = new Random();
+    // 生产者引用
     private final DefaultMQProducer defaultMQProducer;
+    // Topic发布信息表（路由信息）
     private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable =
         new ConcurrentHashMap<>();
+    // 发送消息钩子
     private final ArrayList<SendMessageHook> sendMessageHookList = new ArrayList<>();
+    // 事务结束钩子
     private final ArrayList<EndTransactionHook> endTransactionHookList = new ArrayList<>();
+    // RPC钩子
     private final RPCHook rpcHook;
+    // 异步发送线程池队列
     private final BlockingQueue<Runnable> asyncSenderThreadPoolQueue;
+    // 默认异步发送线程池
     private final ExecutorService defaultAsyncSenderExecutor;
+    // 事务检查请求队列
     protected BlockingQueue<Runnable> checkRequestQueue;
+    // 事务检查线程池
     protected ExecutorService checkExecutor;
+    // 服务状态
     private ServiceState serviceState = ServiceState.CREATE_JUST;
+    // MQClient实例
     private MQClientInstance mQClientFactory;
+    // 检查禁止钩子
     private ArrayList<CheckForbiddenHook> checkForbiddenHookList = new ArrayList<>();
+    // 故障规避策略
     private MQFaultStrategy mqFaultStrategy;
+    // 异步发送线程池
     private ExecutorService asyncSenderExecutor;
 
-    // backpressure related
+    // 背压控制信号量
     private Semaphore semaphoreAsyncSendNum;
     private Semaphore semaphoreAsyncSendSize;
 
@@ -735,28 +790,33 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
     }
 
+    // 默认消息发送实现：选择队列、重试、故障转移
     private SendResult sendDefaultImpl(
         Message msg,
         final CommunicationMode communicationMode,
         final SendCallback sendCallback,
         final long timeout
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+        // 检查Producer状态和消息合法性
         this.makeSureStateOK();
         Validators.checkMessage(msg, this.defaultMQProducer);
         final long invokeID = random.nextLong();
         long beginTimestampFirst = System.currentTimeMillis();
         long beginTimestampPrev = beginTimestampFirst;
         long endTimestamp = beginTimestampFirst;
+        // 查找Topic的发布信息（路由信息）
         TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
         if (topicPublishInfo != null && topicPublishInfo.ok()) {
             boolean callTimeout = false;
             MessageQueue mq = null;
             Exception exception = null;
             SendResult sendResult = null;
+            // 同步模式下支持重试，异步和单向模式不重试
             int timesTotal = communicationMode == CommunicationMode.SYNC ? 1 + this.defaultMQProducer.getRetryTimesWhenSendFailed() : 1;
             int times = 0;
             String[] brokersSent = new String[timesTotal];
             boolean resetIndex = false;
+            // 重试循环：选择不同的队列发送
             for (; times < timesTotal; times++) {
                 String lastBrokerName = null == mq ? null : mq.getBrokerName();
                 if (times > 0) {

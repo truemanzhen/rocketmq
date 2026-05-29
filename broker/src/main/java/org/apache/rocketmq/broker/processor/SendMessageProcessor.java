@@ -240,6 +240,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         return true;
     }
 
+    // 处理消息发送请求：构建内部消息对象，写入消息存储
     public RemotingCommand sendMessage(final ChannelHandlerContext ctx,
         final RemotingCommand request,
         final SendMessageContext sendMessageContext,
@@ -247,6 +248,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         final TopicQueueMappingContext mappingContext,
         final SendMessageCallback sendMessageCallback) throws RemotingCommandException {
 
+        // 前置检查（权限、Topic存在性等）
         final RemotingCommand response = preSend(ctx, request, requestHeader);
         if (response.getCode() != -1) {
             return response;
@@ -256,6 +258,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         final byte[] body = request.getBody();
 
+        // 获取队列ID，如果为负数则随机选择一个写队列
         int queueIdInt = requestHeader.getQueueId();
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
 
@@ -263,11 +266,14 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             queueIdInt = randomQueueId(topicConfig.getWriteQueueNums());
         }
 
+        // 构建内部消息对象
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(requestHeader.getTopic());
         msgInner.setQueueId(queueIdInt);
 
+        // 解析消息属性
         Map<String, String> oriProps = MessageDecoder.string2messageProperties(requestHeader.getProperties());
+        // 处理重试队列和死信队列
         if (!handleRetryAndDLQ(requestHeader, response, request, msgInner, topicConfig, oriProps)) {
             return response;
         }
@@ -275,13 +281,14 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setBody(body);
         msgInner.setFlag(requestHeader.getFlag());
 
+        // 生成唯一消息ID（如果客户端未提供）
         String uniqKey = oriProps.get(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX);
         if (uniqKey == null || uniqKey.length() <= 0) {
             uniqKey = MessageClientIDSetter.createUniqID();
             oriProps.put(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX, uniqKey);
         }
 
-        // liteTopic multi dispatch
+        // LiteTopic多队列分发
         String liteTopic = oriProps.get(MessageConst.PROPERTY_LITE_TOPIC);
         if (StringUtils.isNotEmpty(liteTopic)) {
             String lmqName = LiteUtil.toLmqName(requestHeader.getTopic(), liteTopic);
@@ -289,7 +296,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         }
 
         MessageAccessor.setProperties(msgInner, oriProps);
-        // check properties to ensure exclusive, don't check topic meta config to keep the behavior consistent
+        // 处理优先级消息
         int msgPriority = msgInner.getPriority();
         if (msgPriority >= 0) {
             if (TopicMessageType.PRIORITY.equals(TopicMessageType.parseFromMessageProperty(msgInner.getProperties()))) {
@@ -300,6 +307,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             }
         }
 
+        // 压缩Topic必须包含消息Key
         CleanupPolicy cleanupPolicy = CleanupPolicyUtils.getDeletePolicy(Optional.of(topicConfig));
         if (Objects.equals(cleanupPolicy, CleanupPolicy.COMPACTION)) {
             if (StringUtils.isBlank(msgInner.getKeys())) {
@@ -309,6 +317,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             }
         }
 
+        // 设置消息的Tag、时间戳、来源地址等属性
         msgInner.setTagsCode(MessageExtBrokerInner.tagsString2tagsCode(topicConfig.getTopicFilterType(), msgInner.getTags()));
         msgInner.setBornTimestamp(requestHeader.getBornTimestamp());
         msgInner.setBornHost(ctx.channel().remoteAddress());
@@ -319,11 +328,11 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         msgInner.setPropertiesString(MessageDecoder.messageProperties2String(msgInner.getProperties()));
 
-        // Map<String, String> oriProps = MessageDecoder.string2messageProperties(requestHeader.getProperties());
+        // 判断是否为事务消息
         String traFlag = oriProps.get(MessageConst.PROPERTY_TRANSACTION_PREPARED);
         boolean sendTransactionPrepareMessage;
         if (Boolean.parseBoolean(traFlag)
-            && !(msgInner.getReconsumeTimes() > 0 && msgInner.getDelayTimeLevel() > 0)) { //For client under version 4.6.1
+            && !(msgInner.getReconsumeTimes() > 0 && msgInner.getDelayTimeLevel() > 0)) {
             if (this.brokerController.getBrokerConfig().isRejectTransactionMessage()) {
                 response.setCode(ResponseCode.NO_PERMISSION);
                 response.setRemark(
@@ -338,6 +347,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         long beginTimeMillis = this.brokerController.getMessageStore().now();
 
+        // 异步发送模式
         if (brokerController.getBrokerConfig().isAsyncSendEnable()) {
             CompletableFuture<PutMessageResult> asyncPutMessageFuture;
             if (sendTransactionPrepareMessage) {
@@ -356,16 +366,17 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                     doResponse(ctx, request, responseFuture);
                 }
 
-                // record the transaction metrics, responseFuture == null means put successfully
+                // 记录事务消息指标
                 if (sendTransactionPrepareMessage && (responseFuture == null || responseFuture.getCode() == ResponseCode.SUCCESS)) {
                     this.brokerController.getTransactionalMessageService().getTransactionMetrics().addAndGet(msgInner.getProperty(MessageConst.PROPERTY_REAL_TOPIC), 1);
                 }
 
                 sendMessageCallback.onComplete(sendMessageContext, response);
             }, this.brokerController.getPutMessageFutureExecutor());
-            // Returns null to release the send message thread
+            // 返回null释放发送线程
             return null;
         } else {
+            // 同步发送模式
             PutMessageResult putMessageResult = null;
             if (sendTransactionPrepareMessage) {
                 putMessageResult = this.brokerController.getTransactionalMessageService().prepareMessage(msgInner);
@@ -373,7 +384,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                 putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
             }
             handlePutMessageResult(putMessageResult, response, request, msgInner, responseHeader, sendMessageContext, ctx, queueIdInt, beginTimeMillis, mappingContext, BrokerMetricsManager.getMessageType(requestHeader));
-            // record the transaction metrics
+            // 记录事务消息指标
             if (sendTransactionPrepareMessage && putMessageResult.getPutMessageStatus() == PutMessageStatus.PUT_OK && putMessageResult.getAppendMessageResult().isOk()) {
                 this.brokerController.getTransactionalMessageService().getTransactionMetrics().addAndGet(msgInner.getProperty(MessageConst.PROPERTY_REAL_TOPIC), 1);
             }

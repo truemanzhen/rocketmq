@@ -30,11 +30,14 @@ import java.nio.ByteBuffer;
 
 import static java.lang.String.format;
 
-public class StoreUtil {
+    // 存储工具类：提供存储相关的工具方法
+    public class StoreUtil {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // 系统总物理内存大小
     public static final long TOTAL_PHYSICAL_MEMORY_SIZE = getTotalPhysicalMemorySize();
 
+    // 获取系统总物理内存大小
     @SuppressWarnings("restriction")
     public static long getTotalPhysicalMemorySize() {
         long physicalTotal = 1024 * 1024 * 1024 * 24L;
@@ -46,6 +49,7 @@ public class StoreUtil {
         return physicalTotal;
     }
 
+    // 向MappedFile追加数据
     public static void fileAppend(MappedFile file, ByteBuffer data) {
         boolean success = file.appendMessage(data);
         if (!success) {
@@ -53,10 +57,12 @@ public class StoreUtil {
         }
     }
 
+    // 获取文件队列快照
     public static FileQueueSnapshot getFileQueueSnapshot(MappedFileQueue mappedFileQueue) {
         return getFileQueueSnapshot(mappedFileQueue, mappedFileQueue.getLastMappedFile().getFileFromOffset());
     }
 
+    // 获取文件队列快照（指定当前文件）
     public static FileQueueSnapshot getFileQueueSnapshot(MappedFileQueue mappedFileQueue, final long currentFile) {
         try {
             Preconditions.checkNotNull(mappedFileQueue, "file queue shouldn't be null");
@@ -79,6 +85,7 @@ public class StoreUtil {
         return new FileQueueSnapshot();
     }
 
+    // 根据物理偏移量和大小获取消息
     public static MessageExt getMessage(long offsetPy, int sizePy, MessageStore messageStore, ByteBuffer byteBuffer) {
         try {
             if (offsetPy < 0L || sizePy <= 0 || null == messageStore || null == byteBuffer) {

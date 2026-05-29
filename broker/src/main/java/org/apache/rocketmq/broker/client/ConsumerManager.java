@@ -39,18 +39,27 @@ import org.apache.rocketmq.remoting.protocol.heartbeat.MessageModel;
 import org.apache.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
-public class ConsumerManager {
+    // 消费者管理器：管理消费者的注册、心跳、订阅关系
+    public class ConsumerManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
+    // 消费者表（key: ConsumerGroup）
     private final ConcurrentMap<String, ConsumerGroupInfo> consumerTable =
         new ConcurrentHashMap<>(1024);
+    // Topic-Group映射表
     private final ConcurrentMap<String, Set<String>> topicGroupTable =
             new ConcurrentHashMap<>(1024);
+    // 消费者补偿表（用于Proxy模式）
     private final ConcurrentMap<String, ConsumerGroupInfo> consumerCompensationTable =
         new ConcurrentHashMap<>(1024);
+    // 消费者ID变更监听器
     private final List<ConsumerIdsChangeListener> consumerIdsChangeListenerList = new CopyOnWriteArrayList<>();
+    // 统计管理器
     protected final BrokerStatsManager brokerStatsManager;
+    // Channel过期超时时间
     private final long channelExpiredTimeout;
+    // 订阅过期超时时间
     private final long subscriptionExpiredTimeout;
+    // Broker配置
     private final BrokerConfig brokerConfig;
 
     public ConsumerManager(final ConsumerIdsChangeListener consumerIdsChangeListener, long expiredTimeout) {
@@ -70,6 +79,7 @@ public class ConsumerManager {
         this.brokerConfig = brokerConfig;
     }
 
+    // 根据ClientId查找Channel
     public ClientChannelInfo findChannel(final String group, final String clientId) {
         ConsumerGroupInfo consumerGroupInfo = this.consumerTable.get(group);
         if (consumerGroupInfo != null) {
@@ -78,6 +88,7 @@ public class ConsumerManager {
         return null;
     }
 
+    // 根据Channel查找ChannelInfo
     public ClientChannelInfo findChannel(final String group, final Channel channel) {
         ConsumerGroupInfo consumerGroupInfo = this.consumerTable.get(group);
         if (consumerGroupInfo != null) {
@@ -86,10 +97,12 @@ public class ConsumerManager {
         return null;
     }
 
+    // 查找订阅数据
     public SubscriptionData findSubscriptionData(final String group, final String topic) {
         return findSubscriptionData(group, topic, true);
     }
 
+    // 查找订阅数据（可选择是否从补偿表查找）
     public SubscriptionData findSubscriptionData(final String group, final String topic,
         boolean fromCompensationTable) {
         ConsumerGroupInfo consumerGroupInfo = getConsumerGroupInfo(group, false);

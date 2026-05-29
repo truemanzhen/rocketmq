@@ -22,26 +22,26 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public enum StoreType {
+    // 存储类型枚举
+    public enum StoreType {
+    // 默认存储（基于MappedFile）
     DEFAULT("default"),
+    // RocksDB存储
     DEFAULT_ROCKSDB("defaultRocksDB");
 
+    // 存储类型字符串
     private String storeType;
 
     StoreType(String storeType) {
         this.storeType = storeType;
     }
 
+    // 获取存储类型字符串
     public String getStoreType() {
         return storeType;
     }
 
-    /**
-     * convert string to set of StoreType
-     *
-     * @param str example "default;defaultRocksDB"
-     * @return set of StoreType
-     */
+    // 从字符串解析存储类型集合
     public static Set<StoreType> fromString(String str) {
         if (str == null || str.trim().isEmpty()) {
             return Collections.emptySet();

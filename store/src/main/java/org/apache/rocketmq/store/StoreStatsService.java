@@ -525,15 +525,19 @@ public class StoreStatsService extends ServiceThread {
         return result;
     }
 
+    // 统计服务线程：定时采样和打印TPS
     public void run() {
         log.info(this.getServiceName() + " service started");
 
         while (!this.isStopped()) {
             try {
+                // 每1秒采样一次
                 this.waitForRunning(FREQUENCY_OF_SAMPLING);
 
+                // 采样：记录当前时间点的计数器值
                 this.sampling();
 
+                // 打印TPS统计信息
                 this.printTps();
             } catch (Exception e) {
                 log.warn(this.getServiceName() + " service has exception. ", e);
@@ -551,26 +555,31 @@ public class StoreStatsService extends ServiceThread {
         return StoreStatsService.class.getSimpleName();
     }
 
+    // 采样：记录各计数器的当前值和时间戳
     private void sampling() {
         this.samplingLock.lock();
         try {
+            // 记录写入消息总数
             this.putTimesList.add(new CallSnapshot(System.currentTimeMillis(), getPutMessageTimesTotal()));
             if (this.putTimesList.size() > (MAX_RECORDS_OF_SAMPLING + 1)) {
                 this.putTimesList.removeFirst();
             }
 
+            // 记录读取命中总数
             this.getTimesFoundList.add(new CallSnapshot(System.currentTimeMillis(),
                 this.getMessageTimesTotalFound.longValue()));
             if (this.getTimesFoundList.size() > (MAX_RECORDS_OF_SAMPLING + 1)) {
                 this.getTimesFoundList.removeFirst();
             }
 
+            // 记录读取未命中总数
             this.getTimesMissList.add(new CallSnapshot(System.currentTimeMillis(),
                 this.getMessageTimesTotalMiss.longValue()));
             if (this.getTimesMissList.size() > (MAX_RECORDS_OF_SAMPLING + 1)) {
                 this.getTimesMissList.removeFirst();
             }
 
+            // 记录转发消息总数
             this.transferredMsgCountList.add(new CallSnapshot(System.currentTimeMillis(),
                 this.getMessageTransferredMsgCount.longValue()));
             if (this.transferredMsgCountList.size() > (MAX_RECORDS_OF_SAMPLING + 1)) {
@@ -582,10 +591,12 @@ public class StoreStatsService extends ServiceThread {
         }
     }
 
+    // 打印TPS统计信息和消息写入耗时分布
     private void printTps() {
         if (System.currentTimeMillis() > (this.lastPrintTimestamp + printTPSInterval * 1000)) {
             this.lastPrintTimestamp = System.currentTimeMillis();
 
+            // 打印写入TPS、读取命中TPS、读取未命中TPS、转发TPS
             log.info("[STORETPS] put_tps {} get_found_tps {} get_miss_tps {} get_transferred_tps {}",
                 this.getPutTps(printTPSInterval),
                 this.getGetFoundTps(printTPSInterval),
@@ -593,6 +604,7 @@ public class StoreStatsService extends ServiceThread {
                 this.getGetTransferredTps(printTPSInterval)
             );
 
+            // 打印消息写入耗时分布（各时间段的消息数量）
             final LongAdder[] times = this.resetPutMessageDistributeTime();
             if (null == times)
                 return;
@@ -605,6 +617,7 @@ public class StoreStatsService extends ServiceThread {
                 sb.append(String.format("%s:%d", PUT_MESSAGE_ENTIRE_TIME_MAX_DESC[i], value));
                 sb.append(" ");
             }
+            // 计算P99和P999延迟
             this.resetPutMessageTimeBuckets();
             this.findPutMessageEntireTimePX(0.99);
             this.findPutMessageEntireTimePX(0.999);

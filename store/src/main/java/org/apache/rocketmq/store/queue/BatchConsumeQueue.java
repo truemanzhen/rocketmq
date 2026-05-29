@@ -43,51 +43,67 @@ import org.apache.rocketmq.store.SelectMappedBufferResult;
 import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.logfile.MappedFile;
 
-public class BatchConsumeQueue implements ConsumeQueueInterface {
+    // 批量消费队列：支持批量消息的消费队列实现
+    public class BatchConsumeQueue implements ConsumeQueueInterface {
     protected static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
     /**
-     * BatchConsumeQueue's store unit. Format:
-     * <pre>
+     * 批量消费队列条目格式：
      * ┌─────────────────────────┬───────────┬────────────┬──────────┬─────────────┬─────────┬───────────────┬─────────┐
      * │CommitLog Physical Offset│ Body Size │Tag HashCode│Store time│msgBaseOffset│batchSize│compactedOffset│reserved │
      * │        (8 Bytes)        │ (4 Bytes) │ (8 Bytes)  │(8 Bytes) │(8 Bytes)    │(2 Bytes)│   (4 Bytes)   │(4 Bytes)│
      * ├─────────────────────────┴───────────┴────────────┴──────────┴─────────────┴─────────┴───────────────┴─────────┤
      * │                                                  Store Unit                                                   │
-     * │                                                                                                               │
      * </pre>
-     * BatchConsumeQueue's store unit. Size:
-     * CommitLog Physical Offset(8) + Body Size(4) + Tag HashCode(8) + Store time(8) +
+     * 条目大小：CommitLog Physical Offset(8) + Body Size(4) + Tag HashCode(8) + Store time(8) +
      * msgBaseOffset(8) + batchSize(2) + compactedOffset(4) + reserved(4)= 46 Bytes
      */
+    // 条目大小（46字节）
     public static final int CQ_STORE_UNIT_SIZE = 46;
+    // Tag HashCode在条目中的偏移量
     public static final int MSG_TAG_OFFSET_INDEX = 12;
+    // 存储时间在条目中的偏移量
     public static final int MSG_STORE_TIME_OFFSET_INDEX = 20;
+    // 消息基础偏移量在条目中的偏移量
     public static final int MSG_BASE_OFFSET_INDEX = 28;
+    // 批量大小在条目中的偏移量
     public static final int MSG_BATCH_SIZE_INDEX = 36;
+    // 压缩偏移量在条目中的偏移量
     public static final int MSG_COMPACT_OFFSET_INDEX = 38;
     private static final int MSG_COMPACT_OFFSET_LENGTH = 4;
+    // 无效位置
     public static final int INVALID_POS = -1;
+    // MappedFile队列
     protected final MappedFileQueue mappedFileQueue;
     protected MessageStore messageStore;
     protected ConsumeQueueStore consumeQueueStore;
+    // Topic名称
     protected final String topic;
+    // 队列ID
     protected final int queueId;
+    // 条目读取缓冲区
     protected final ByteBuffer byteBufferItem;
 
     protected final String storePath;
     protected final int mappedFileSize;
+    // CommitLog中最大物理偏移量
     protected volatile long maxMsgPhyOffsetInCommitLog = -1;
 
+    // 最小逻辑偏移量
     protected volatile long minLogicOffset = 0;
 
+    // 队列中最大偏移量
     protected volatile long maxOffsetInQueue = 0;
+    // 队列中最小偏移量
     protected volatile long minOffsetInQueue = -1;
     protected final int commitLogSize;
 
+    // 偏移量缓存（用于快速查找）
     protected ConcurrentSkipListMap<Long, MappedFile> offsetCache = new ConcurrentSkipListMap<>();
+    // 时间缓存（用于按时间查找）
     protected ConcurrentSkipListMap<Long, MappedFile> timeCache = new ConcurrentSkipListMap<>();
 
+    // 构造函数：创建批量消费队列
     public BatchConsumeQueue(
         final String topic,
         final int queueId,
@@ -100,6 +116,7 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
         this.mappedFileSize = mappedFileSize;
         this.messageStore = messageStore;
         this.consumeQueueStore = consumeQueueStore;
+        // 获取CommitLog文件大小
         this.commitLogSize = messageStore.getCommitLog().getCommitLogSize();
 
         this.topic = topic;
@@ -110,6 +127,7 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
             writeWithoutMmap = messageStore.getMessageStoreConfig().isWriteWithoutMmap();
         }
 
+        // 创建MappedFile队列目录
         if (StringUtils.isBlank(subfolder)) {
             String queueDir = this.storePath + File.separator + topic + File.separator + queueId;
             this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null,
@@ -120,6 +138,7 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
                 writeWithoutMmap);
         }
 
+        // 初始化条目读取缓冲区
         this.byteBufferItem = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
     }
 

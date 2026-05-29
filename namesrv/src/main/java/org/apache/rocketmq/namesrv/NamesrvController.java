@@ -234,7 +234,9 @@ public class NamesrvController {
         this.remotingServer.registerRPCHook(new ZoneRouteRPCHook());
     }
 
+    // 启动NameServer的所有服务组件
     public void start() throws Exception {
+        // 启动Netty Server，开始监听端口。请求处理流水线：
         // 网卡数据到达
         //  ↓
         //Boss EventLoop (accept 连接)

@@ -42,26 +42,42 @@ import org.apache.rocketmq.common.utils.ThreadUtils;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
-public class BrokerStatsManager {
+    // Broker统计管理器：记录消息收发的各种统计指标
+    public class BrokerStatsManager {
 
+    // 队列写入次数
     @Deprecated public static final String QUEUE_PUT_NUMS = Stats.QUEUE_PUT_NUMS;
+    // 队列写入大小
     @Deprecated public static final String QUEUE_PUT_SIZE = Stats.QUEUE_PUT_SIZE;
+    // 队列读取次数
     @Deprecated public static final String QUEUE_GET_NUMS = Stats.QUEUE_GET_NUMS;
+    // 队列读取大小
     @Deprecated public static final String QUEUE_GET_SIZE = Stats.QUEUE_GET_SIZE;
+    // Topic写入次数
     @Deprecated public static final String TOPIC_PUT_NUMS = Stats.TOPIC_PUT_NUMS;
+    // Topic写入大小
     @Deprecated public static final String TOPIC_PUT_SIZE = Stats.TOPIC_PUT_SIZE;
 
+    // 消费组读取次数
     @Deprecated public static final String GROUP_GET_NUMS = Stats.GROUP_GET_NUMS;
+    // 消费组读取大小
     @Deprecated public static final String GROUP_GET_SIZE = Stats.GROUP_GET_SIZE;
 
+    // 重试次数
     @Deprecated public static final String SNDBCK_PUT_NUMS = Stats.SNDBCK_PUT_NUMS;
+    // Broker写入次数
     @Deprecated public static final String BROKER_PUT_NUMS = Stats.BROKER_PUT_NUMS;
+    // Broker读取次数
     @Deprecated public static final String BROKER_GET_NUMS = Stats.BROKER_GET_NUMS;
+    // 从磁盘读取次数
     @Deprecated public static final String GROUP_GET_FROM_DISK_NUMS = Stats.GROUP_GET_FROM_DISK_NUMS;
+    // 从磁盘读取大小
     @Deprecated public static final String GROUP_GET_FROM_DISK_SIZE = Stats.GROUP_GET_FROM_DISK_SIZE;
+    // Broker从磁盘读取次数
     @Deprecated public static final String BROKER_GET_FROM_DISK_NUMS = Stats.BROKER_GET_FROM_DISK_NUMS;
+    // Broker从磁盘读取大小
     @Deprecated public static final String BROKER_GET_FROM_DISK_SIZE = Stats.BROKER_GET_FROM_DISK_SIZE;
-    // For commercial
+    // 商业计费相关
     @Deprecated public static final String COMMERCIAL_SEND_TIMES = Stats.COMMERCIAL_SEND_TIMES;
     @Deprecated public static final String COMMERCIAL_SNDBCK_TIMES = Stats.COMMERCIAL_SNDBCK_TIMES;
     @Deprecated public static final String COMMERCIAL_RCV_TIMES = Stats.COMMERCIAL_RCV_TIMES;
@@ -70,25 +86,38 @@ public class BrokerStatsManager {
     @Deprecated public static final String COMMERCIAL_RCV_SIZE = Stats.COMMERCIAL_RCV_SIZE;
     @Deprecated public static final String COMMERCIAL_PERM_FAILURES = Stats.COMMERCIAL_PERM_FAILURES;
 
-    // Send message latency
+    // 消息发送延迟
     @Deprecated public static final String TOPIC_PUT_LATENCY = "TOPIC_PUT_LATENCY";
+    // 消费确认次数
     @Deprecated public static final String GROUP_ACK_NUMS = "GROUP_ACK_NUMS";
+    // 消费检查点次数
     @Deprecated public static final String GROUP_CK_NUMS = "GROUP_CK_NUMS";
+    // 死信队列写入次数
     public static final String DLQ_PUT_NUMS = "DLQ_PUT_NUMS";
+    // Broker确认次数
     public static final String BROKER_ACK_NUMS = "BROKER_ACK_NUMS";
+    // Broker检查点次数
     public static final String BROKER_CK_NUMS = "BROKER_CK_NUMS";
+    // 不含系统Topic的读取次数
     public static final String BROKER_GET_NUMS_WITHOUT_SYSTEM_TOPIC = "BROKER_GET_NUMS_WITHOUT_SYSTEM_TOPIC";
+    // 不含系统Topic的写入次数
     public static final String BROKER_PUT_NUMS_WITHOUT_SYSTEM_TOPIC = "BROKER_PUT_NUMS_WITHOUT_SYSTEM_TOPIC";
+    // 重试到死信队列次数
     public static final String SNDBCK2DLQ_TIMES = "SNDBCK2DLQ_TIMES";
 
+    // 商业计费Owner
     public static final String COMMERCIAL_OWNER = "Owner";
 
+    // 账户Owner
     public static final String ACCOUNT_OWNER_PARENT = "OWNER_PARENT";
     public static final String ACCOUNT_OWNER_SELF = "OWNER_SELF";
 
+    // 账户统计间隔（毫秒）
     public static final long ACCOUNT_STAT_INVERTAL = 60 * 1000;
+    // 账户认证类型
     public static final String ACCOUNT_AUTH_TYPE = "AUTH_TYPE";
 
+    // 账户操作类型
     public static final String ACCOUNT_SEND = "SEND";
     public static final String ACCOUNT_RCV = "RCV";
     public static final String ACCOUNT_SEND_BACK = "SEND_BACK";
@@ -97,6 +126,7 @@ public class BrokerStatsManager {
     public static final String ACCOUNT_SEND_REJ = "SEND_REJ";
     public static final String ACCOUNT_REV_REJ = "RCV_REJ";
 
+    // 消息数量统计
     public static final String MSG_NUM = "MSG_NUM";
     public static final String MSG_SIZE = "MSG_SIZE";
     public static final String SUCCESS_MSG_NUM = "SUCCESS_MSG_NUM";

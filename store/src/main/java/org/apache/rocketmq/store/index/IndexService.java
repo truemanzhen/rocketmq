@@ -221,6 +221,7 @@ public class IndexService implements CommitLogDispatchStore {
         return topic + "#" + indexType + "#" + key;
     }
 
+    // 构建消息索引：将消息的Key、UniqKey、Tag写入IndexFile
     public void buildIndex(DispatchRequest req) {
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
@@ -228,10 +229,12 @@ public class IndexService implements CommitLogDispatchStore {
             DispatchRequest msg = req;
             String topic = msg.getTopic();
             String keys = msg.getKeys();
+            // 如果消息偏移量小于IndexFile的结束偏移量，说明已经索引过，跳过
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
 
+            // 过滤事务回滚消息，不建立索引
             final int tranType = MessageSysFlag.getTransactionValue(msg.getSysFlag());
             switch (tranType) {
                 case MessageSysFlag.TRANSACTION_NOT_TYPE:
@@ -242,6 +245,7 @@ public class IndexService implements CommitLogDispatchStore {
                     return;
             }
 
+            // 按UniqKey建立索引
             if (req.getUniqKey() != null) {
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
@@ -250,6 +254,7 @@ public class IndexService implements CommitLogDispatchStore {
                 }
             }
 
+            // 按用户自定义Key建立索引（支持多个Key，用空格分隔）
             if (keys != null && keys.length() > 0) {
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 for (int i = 0; i < keyset.length; i++) {
@@ -264,6 +269,7 @@ public class IndexService implements CommitLogDispatchStore {
                 }
             }
 
+            // 按Tag建立索引
             Map<String, String> propertiesMap = req.getPropertiesMap();
             if (null != propertiesMap && propertiesMap.containsKey(MessageConst.PROPERTY_TAGS)) {
                 String tags = req.getPropertiesMap().get(MessageConst.PROPERTY_TAGS);

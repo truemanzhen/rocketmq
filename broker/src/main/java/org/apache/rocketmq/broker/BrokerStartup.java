@@ -42,14 +42,17 @@ import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 import org.apache.rocketmq.srvutil.ServerUtil;
 import org.apache.rocketmq.store.config.MessageStoreConfig;
 
-public class BrokerStartup {
+    // Broker启动类：负责创建和启动BrokerController
+    public class BrokerStartup {
 
     public static Logger log;
 
+    // 主入口
     public static void main(String[] args) {
         start(createBrokerController(args));
     }
 
+    // 启动BrokerController
     public static BrokerController start(BrokerController controller) {
         try {
             controller.start();
@@ -73,12 +76,14 @@ public class BrokerStartup {
         return null;
     }
 
+    // 关闭BrokerController
     public static void shutdown(final BrokerController controller) {
         if (null != controller) {
             controller.shutdown();
         }
     }
 
+    // 解析命令行参数
     public static ConfigContext parseCmdLine(String[] args) throws Exception {
         Options options = ServerUtil.buildCommandlineOptions(new Options());
         CommandLine commandLine = ServerUtil.parseCmdLine(
@@ -93,8 +98,10 @@ public class BrokerStartup {
             filePath = commandLine.getOptionValue('c');
         }
 
+        // 从配置文件加载配置
         configContext = configFileToConfigContext(filePath);
 
+        // 打印配置项
         if (commandLine.hasOption('p') && configContext != null) {
             Logger console = LoggerFactory.getLogger(LoggerName.BROKER_CONSOLE_NAME);
             MixAll.printObjectProperties(console, configContext.getBrokerConfig());

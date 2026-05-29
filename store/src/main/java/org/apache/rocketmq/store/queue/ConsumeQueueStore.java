@@ -58,10 +58,15 @@ import static java.lang.String.format;
 import static org.apache.rocketmq.store.config.StorePathConfigHelper.getStorePathBatchConsumeQueue;
 import static org.apache.rocketmq.store.config.StorePathConfigHelper.getStorePathConsumeQueue;
 
-public class ConsumeQueueStore extends AbstractConsumeQueueStore {
+    // ConsumeQueue存储管理器：管理所有Topic的ConsumeQueue
+    public class ConsumeQueueStore extends AbstractConsumeQueueStore {
+    // 刷盘服务
     private final FlushConsumeQueueService flushConsumeQueueService;
+    // 逻辑偏移量校正服务
     private final CorrectLogicOffsetService correctLogicOffsetService;
+    // 清理服务
     private final CleanConsumeQueueService cleanConsumeQueueService;
+    // LMQ计数器
     private final AtomicInteger lmqCounter = new AtomicInteger(0);
 
     public ConsumeQueueStore(DefaultMessageStore messageStore) {
@@ -72,19 +77,23 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
     }
 
     @Override
+    // 启动ConsumeQueue存储服务
     public void start() {
         this.flushConsumeQueueService.start();
+        // 定时清理队列文件
         messageStore.getScheduledCleanQueueExecutorService().scheduleWithFixedDelay(this::cleanQueueFilesPeriodically,
             1000 * 60, this.messageStoreConfig.getCleanResourceInterval(), TimeUnit.MILLISECONDS);
         log.info("Default ConsumeQueueStore start!");
     }
 
+    // 定期清理队列文件
     private void cleanQueueFilesPeriodically() {
         this.correctLogicOffsetService.run();
         this.cleanConsumeQueueService.run();
     }
 
     @Override
+    // 加载ConsumeQueue文件
     public boolean load() {
         boolean cqLoadResult = loadConsumeQueues(getStorePathConsumeQueue(this.messageStoreConfig.getStorePathRootDir()), CQType.SimpleCQ);
         boolean bcqLoadResult = loadConsumeQueues(getStorePathBatchConsumeQueue(this.messageStoreConfig.getStorePathRootDir()), CQType.BatchCQ);
@@ -92,6 +101,7 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
     }
 
     @Override
+    // 恢复ConsumeQueue数据
     public void recover(boolean concurrently) {
         log.info("Start to recover consume queue concurrently={}", concurrently);
         if (concurrently) {

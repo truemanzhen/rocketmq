@@ -42,13 +42,13 @@ public class TransientStorePool {
         this.availableBuffers = new ConcurrentLinkedDeque<>();
     }
 
-    /**
-     * It's a heavy init method.
-     */
+    // 初始化堆外内存池：预分配堆外内存并锁定，避免被交换到磁盘
     public void init() {
         for (int i = 0; i < poolSize; i++) {
+            // 分配堆外内存
             ByteBuffer byteBuffer = ByteBuffer.allocateDirect(fileSize);
 
+            // 使用mlock锁定内存，防止被操作系统换出
             final long address = PlatformDependent.directBufferAddress(byteBuffer);
             Pointer pointer = new Pointer(address);
             LibC.INSTANCE.mlock(pointer, new NativeLong(fileSize));
@@ -57,6 +57,7 @@ public class TransientStorePool {
         }
     }
 
+    // 销毁内存池：解锁并释放堆外内存
     public void destroy() {
         for (ByteBuffer byteBuffer : availableBuffers) {
             final long address = PlatformDependent.directBufferAddress(byteBuffer);
@@ -65,14 +66,17 @@ public class TransientStorePool {
         }
     }
 
+    // 归还ByteBuffer到内存池
     public void returnBuffer(ByteBuffer byteBuffer) {
         byteBuffer.position(0);
         byteBuffer.limit(fileSize);
         this.availableBuffers.offerFirst(byteBuffer);
     }
 
+    // 从内存池借用ByteBuffer
     public ByteBuffer borrowBuffer() {
         ByteBuffer buffer = availableBuffers.pollFirst();
+        // 当剩余缓冲区不足40%时打印警告
         if (availableBuffers.size() < poolSize * 0.4) {
             log.warn("TransientStorePool only remain {} sheets.", availableBuffers.size());
         }

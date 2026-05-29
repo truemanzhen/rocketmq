@@ -25,78 +25,39 @@ import org.apache.rocketmq.store.DispatchRequest;
 import org.apache.rocketmq.store.MessageFilter;
 import org.rocksdb.RocksDBException;
 
-public interface ConsumeQueueInterface extends FileQueueLifeCycle {
-    /**
-     * Get the topic name
-     * @return the topic this cq belongs to.
-     */
+    // ConsumeQueue接口：定义消费队列的操作契约
+    public interface ConsumeQueueInterface extends FileQueueLifeCycle {
+    // 获取Topic名称
     String getTopic();
 
-    /**
-     * Get queue id
-     * @return the queue id this cq belongs to.
-     */
+    // 获取队列ID
     int getQueueId();
 
-    /**
-     * Get the units from the start offset.
-     *
-     * @param startIndex start index
-     * @return the unit iterateFrom
-     */
+    // 从指定偏移量开始迭代
     ReferredIterator<CqUnit> iterateFrom(long startIndex);
 
-    /**
-     * Get the units from the start offset.
-     *
-     * @param startIndex start index
-     * @param count the unit counts will be iterated
-     * @return the unit iterateFrom
-     * @throws RocksDBException only in rocksdb mode
-     */
+    // 从指定偏移量开始迭代指定数量
     ReferredIterator<CqUnit> iterateFrom(long startIndex, int count) throws RocksDBException;
 
-    /**
-     * Get cq unit at specified index
-     * @param index index
-     * @return the cq unit at index
-     */
+    // 获取指定索引的CqUnit
     CqUnit get(long index);
 
-    /**
-     * Get earliest cq unit
-     * @return the cq unit and message storeTime at index
-     */
+    // 获取指定索引的CqUnit和存储时间
     Pair<CqUnit, Long> getCqUnitAndStoreTime(long index);
 
-    /**
-     * Get earliest cq unit
-     * @return earliest cq unit and message storeTime
-     */
+    // 获取最早的CqUnit和存储时间
     Pair<CqUnit, Long> getEarliestUnitAndStoreTime();
 
-    /**
-     * Get earliest cq unit
-     * @return earliest cq unit
-     */
+    // 获取最早的CqUnit
     CqUnit getEarliestUnit();
 
-    /**
-     * Get last cq unit
-     * @return last cq unit
-     */
+    // 获取最新的CqUnit
     CqUnit getLatestUnit();
 
-    /**
-     * Get last commit log offset
-     * @return last commit log offset
-     */
+    // 获取最后的CommitLog偏移量
     long getLastOffset();
 
-    /**
-     * Get min offset(index) in queue
-     * @return the min offset(index) in queue
-     */
+    // 获取队列中的最小偏移量
     long getMinOffsetInQueue();
 
     /**

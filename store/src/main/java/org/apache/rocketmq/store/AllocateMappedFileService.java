@@ -60,8 +60,9 @@ public class AllocateMappedFileService extends ServiceThread {
         this.preprocessHandler = preprocessHandler;
     }
 
+    // 提交MappedFile预分配请求，等待完成后返回
     public MappedFile putRequestAndReturnMappedFile(String nextFilePath, String nextNextFilePath, int fileSize) {
-        // Execute preprocess logic if handler is set
+        // 执行预处理逻辑（如果设置了PreprocessHandler）
         final PreprocessHandler finalPreprocessHandler = this.preprocessHandler;
         if (finalPreprocessHandler != null) {
             try {
@@ -70,14 +71,16 @@ public class AllocateMappedFileService extends ServiceThread {
                 log.warn("Preprocess handler in AllocateMappedFileService execution failed", t);
             }
         }
+        // 检查堆外内存池是否有足够缓冲区
         int canSubmitRequests = 2;
         if (this.messageStore.isTransientStorePoolEnable()) {
             if (this.messageStore.getMessageStoreConfig().isFastFailIfNoBufferInStorePool()
-                && BrokerRole.SLAVE != this.messageStore.getMessageStoreConfig().getBrokerRole()) { //if broker is slave, don't fast fail even no buffer in pool
+                && BrokerRole.SLAVE != this.messageStore.getMessageStoreConfig().getBrokerRole()) {
                 canSubmitRequests = this.messageStore.remainTransientStoreBufferNumbs() - this.requestQueue.size();
             }
         }
 
+        // 提交当前文件的预分配请求
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
@@ -95,6 +98,7 @@ public class AllocateMappedFileService extends ServiceThread {
             canSubmitRequests--;
         }
 
+        // 预分配下一个文件的请求（提前准备，减少写入延迟）
         AllocateRequest nextNextReq = new AllocateRequest(nextNextFilePath, fileSize);
         boolean nextNextPutOK = this.requestTable.putIfAbsent(nextNextFilePath, nextNextReq) == null;
         if (nextNextPutOK) {
@@ -115,10 +119,12 @@ public class AllocateMappedFileService extends ServiceThread {
             return null;
         }
 
+        // 等待预分配完成，超时返回null
         AllocateRequest result = this.requestTable.get(nextFilePath);
         try {
             if (result != null) {
                 messageStore.getPerfCounter().startTick("WAIT_MAPFILE_TIME_MS");
+                // 等待预分配线程完成MappedFile创建
                 boolean waitOK = result.getCountDownLatch().await(waitTimeOut, TimeUnit.MILLISECONDS);
                 messageStore.getPerfCounter().endTick("WAIT_MAPFILE_TIME_MS");
                 if (!waitOK) {
@@ -167,13 +173,12 @@ public class AllocateMappedFileService extends ServiceThread {
         log.info(this.getServiceName() + " service end");
     }
 
-    /**
-     * Only interrupted by the external thread, will return false
-     */
+    // 执行MappedFile预分配操作
     private boolean mmapOperation() {
         boolean isSuccess = false;
         AllocateRequest req = null;
         try {
+            // 从优先级队列中获取预分配请求
             req = this.requestQueue.take();
             AllocateRequest expectedRequest = this.requestTable.get(req.getFilePath());
             if (null == expectedRequest) {
@@ -192,8 +197,9 @@ public class AllocateMappedFileService extends ServiceThread {
 
                 MappedFile mappedFile;
                 boolean writeWithoutMmap = messageStore.getMessageStoreConfig().isWriteWithoutMmap();
-                RunningFlags runningFlags = messageStore.getMessageStoreConfig().isEnableRunningFlagsInFlush() 
+                RunningFlags runningFlags = messageStore.getMessageStoreConfig().isEnableRunningFlagsInFlush()
                     ? messageStore.getRunningFlags() : null;
+                // 如果启用堆外内存池，使用ServiceLoader加载MappedFile实现
                 if (messageStore.isTransientStorePoolEnable()) {
                     try {
                         mappedFile = ServiceLoader.load(MappedFile.class).iterator().next();

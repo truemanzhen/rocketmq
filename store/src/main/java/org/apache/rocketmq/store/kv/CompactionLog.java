@@ -68,31 +68,51 @@ import java.util.stream.Collectors;
 
 import static org.apache.rocketmq.common.message.MessageDecoder.BLANK_MAGIC_CODE;
 
-public class CompactionLog {
+    // 压缩日志：实现消息压缩存储，保留每个Key的最新消息
+    public class CompactionLog {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // 文件末尾最小空白长度
     private static final int END_FILE_MIN_BLANK_LENGTH = 4 + 4;
+    // 最大拉取消息大小（128MB）
     private static final int MAX_PULL_MSG_SIZE = 128 * 1024 * 1024;
+    // 压缩中子目录
     public static final String COMPACTING_SUB_FOLDER = "compacting";
+    // 复制中子目录
     public static final String REPLICATING_SUB_FOLDER = "replicating";
 
+    // 压缩日志文件大小
     private final int compactionLogMappedFileSize;
+    // 压缩消费队列文件大小
     private final int compactionCqMappedFileSize;
+    // 压缩日志文件路径
     private final String compactionLogFilePath;
+    // 压缩消费队列文件路径
     private final String compactionCqFilePath;
     private final MessageStore defaultMessageStore;
     private final CompactionStore compactionStore;
     private final MessageStoreConfig messageStoreConfig;
+    // 压缩追加消息回调
     private final CompactionAppendMsgCallback endMsgCallback;
+    // Topic名称
     private final String topic;
+    // 队列ID
     private final int queueId;
+    // 偏移量Map内存大小
     private final int offsetMapMemorySize;
+    // 写入锁
     private final PutMessageLock putMessageLock;
+    // 读取锁
     private final PutMessageLock readMessageLock;
+    // 当前Topic分区日志
     private TopicPartitionLog current;
+    // 压缩中的Topic分区日志
     private TopicPartitionLog compacting;
+    // 复制中的Topic分区日志
     private TopicPartitionLog replicating;
+    // 压缩位置管理器
     private final CompactionPositionMgr positionMgr;
+    // 状态（INITIAL, COMPACTING, REPLICATING）
     private final AtomicReference<State> state;
 
     public CompactionLog(final MessageStore messageStore, final CompactionStore compactionStore, final String topic, final int queueId)

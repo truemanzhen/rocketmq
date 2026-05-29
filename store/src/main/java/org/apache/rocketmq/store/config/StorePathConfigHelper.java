@@ -18,47 +18,60 @@ package org.apache.rocketmq.store.config;
 
 import java.io.File;
 
-public class StorePathConfigHelper {
+    // 存储路径配置助手：提供各种存储文件的路径
+    public class StorePathConfigHelper {
 
+    // 获取ConsumeQueue存储路径
     public static String getStorePathConsumeQueue(final String rootDir) {
         return rootDir + File.separator + "consumequeue";
     }
 
+    // 获取ConsumeQueue扩展存储路径
     public static String getStorePathConsumeQueueExt(final String rootDir) {
         return rootDir + File.separator + "consumequeue_ext";
     }
+
+    // 获取批量ConsumeQueue存储路径
     public static String getStorePathBatchConsumeQueue(final String rootDir) {
         return rootDir + File.separator + "batchconsumequeue";
     }
 
+    // 获取RocksDB ConsumeQueue存储路径
     public static String getStorePathRocksDBConsumeQueue(final String rootDir) {
         return rootDir + File.separator + "consumequeue_rocksdb";
     }
 
+    // 获取索引文件存储路径
     public static String getStorePathIndex(final String rootDir) {
         return rootDir + File.separator + "index";
     }
 
+    // 获取检查点文件路径
     public static String getStoreCheckpoint(final String rootDir) {
         return rootDir + File.separator + "checkpoint";
     }
 
+    // 获取abort文件路径
     public static String getAbortFile(final String rootDir) {
         return rootDir + File.separator + "abort";
     }
 
+    // 获取锁文件路径
     public static String getLockFile(final String rootDir) {
         return rootDir + File.separator + "lock";
     }
 
+    // 获取延迟偏移量存储路径
     public static String getDelayOffsetStorePath(final String rootDir) {
         return rootDir + File.separator + "config" + File.separator + "delayOffset.json";
     }
 
+    // 获取事务状态表存储路径
     public static String getTranStateTableStorePath(final String rootDir) {
         return rootDir + File.separator + "transaction" + File.separator + "statetable";
     }
 
+    // 获取事务重做日志存储路径
     public static String getTranRedoLogStorePath(final String rootDir) {
         return rootDir + File.separator + "transaction" + File.separator + "redolog";
     }

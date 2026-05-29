@@ -33,69 +33,30 @@ import org.apache.rocketmq.store.SelectMappedBufferResult;
 import org.apache.rocketmq.store.TransientStorePool;
 import org.apache.rocketmq.store.config.FlushDiskType;
 
-public interface MappedFile {
-    /**
-     * Returns the file name of the {@code MappedFile}.
-     *
-     * @return the file name
-     */
+    // MappedFile接口：内存映射文件的抽象，用于高效的消息存储
+    public interface MappedFile {
+    // 获取文件名
     String getFileName();
 
-    /**
-     * Change the file name of the {@code MappedFile}.
-     *
-     * @param fileName the new file name
-     */
+    // 重命名文件
     boolean renameTo(String fileName);
 
-    /**
-     * Returns the file size of the {@code MappedFile}.
-     *
-     * @return the file size
-     */
+    // 获取文件大小
     int getFileSize();
 
-    /**
-     * Returns the {@code FileChannel} behind the {@code MappedFile}.
-     *
-     * @return the file channel
-     */
+    // 获取文件通道
     FileChannel getFileChannel();
 
-    /**
-     * Returns true if this {@code MappedFile} is full and no new messages can be added.
-     *
-     * @return true if the file is full
-     */
+    // 判断文件是否已满
     boolean isFull();
 
-    /**
-     * Returns true if this {@code MappedFile} is available.
-     * <p>
-     * The mapped file will be not available if it's shutdown or destroyed.
-     *
-     * @return true if the file is available
-     */
+    // 判断文件是否可用
     boolean isAvailable();
 
-    /**
-     * Appends a message object to the current {@code MappedFile} with a specific call back.
-     *
-     * @param message a message to append
-     * @param messageCallback the specific call back to execute the real append action
-     * @param putMessageContext
-     * @return the append result
-     */
+    // 追加单条消息
     AppendMessageResult appendMessage(MessageExtBrokerInner message, AppendMessageCallback messageCallback, PutMessageContext putMessageContext);
 
-    /**
-     * Appends a batch message object to the current {@code MappedFile} with a specific call back.
-     *
-     * @param message a message to append
-     * @param messageCallback the specific call back to execute the real append action
-     * @param putMessageContext
-     * @return the append result
-     */
+    // 追加批量消息
     AppendMessageResult appendMessages(MessageExtBatch message, AppendMessageCallback messageCallback, PutMessageContext putMessageContext);
 
     AppendMessageResult appendMessage(final ByteBuffer byteBufferMsg, final CompactionAppendMsgCallback cb);

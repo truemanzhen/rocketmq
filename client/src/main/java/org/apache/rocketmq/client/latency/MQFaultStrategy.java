@@ -23,13 +23,20 @@ import org.apache.rocketmq.client.impl.producer.TopicPublishInfo.QueueFilter;
 import org.apache.rocketmq.common.message.MessageQueue;
 import org.apache.rocketmq.common.utils.StartAndShutdown;
 
-public class MQFaultStrategy implements StartAndShutdown {
+    // 消息队列故障规避策略：根据Broker的延迟和可用性选择最佳队列
+    public class MQFaultStrategy implements StartAndShutdown {
+    // 延迟容忍
     private LatencyFaultTolerance<String> latencyFaultTolerance;
+    // 是否启用延迟容忍
     private volatile boolean sendLatencyFaultEnable;
+    // 是否启用启动探测器
     private volatile boolean startDetectorEnable;
+    // 延迟级别阈值（毫秒）
     private long[] latencyMax = {50L, 100L, 550L, 1800L, 3000L, 5000L, 15000L};
+    // 不可用持续时间（毫秒）
     private long[] notAvailableDuration = {0L, 0L, 2000L, 5000L, 6000L, 10000L, 30000L};
 
+    // Broker过滤器：过滤掉上次使用的Broker
     public static class BrokerFilter implements QueueFilter {
         private String lastBrokerName;
 
@@ -45,25 +52,28 @@ public class MQFaultStrategy implements StartAndShutdown {
         }
     }
 
+    // 线程本地的Broker过滤器
     private ThreadLocal<BrokerFilter> threadBrokerFilter = new ThreadLocal<BrokerFilter>() {
         @Override protected BrokerFilter initialValue() {
             return new BrokerFilter();
         }
     };
 
+    // 可达过滤器：过滤掉不可达的Broker
     private QueueFilter reachableFilter = new QueueFilter() {
         @Override public boolean filter(MessageQueue mq) {
             return latencyFaultTolerance.isReachable(mq.getBrokerName());
         }
     };
 
+    // 可用过滤器：过滤掉不可用的Broker
     private QueueFilter availableFilter = new QueueFilter() {
         @Override public boolean filter(MessageQueue mq) {
             return latencyFaultTolerance.isAvailable(mq.getBrokerName());
         }
     };
 
-
+    // 构造函数
     public MQFaultStrategy(ClientConfig cc, Resolver fetcher, ServiceDetector serviceDetector) {
         this.latencyFaultTolerance = new LatencyFaultToleranceImpl(fetcher, serviceDetector);
         this.latencyFaultTolerance.setDetectInterval(cc.getDetectInterval());
@@ -72,7 +82,7 @@ public class MQFaultStrategy implements StartAndShutdown {
         this.setSendLatencyFaultEnable(cc.isSendLatencyEnable());
     }
 
-    // For unit test.
+    // 单元测试用构造函数
     public MQFaultStrategy(ClientConfig cc, LatencyFaultTolerance<String> tolerance) {
         this.setStartDetectorEnable(cc.isStartDetectorEnable());
         this.setSendLatencyFaultEnable(cc.isSendLatencyEnable());
